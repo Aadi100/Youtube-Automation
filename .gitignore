@@ -1,0 +1,27 @@
+# secrets and local settings - never commit
+.env
+config/
+
+# runtime data and media
+data/
+outputs/
+inputs/
+temp/
+state/
+backups/
+music/*
+!music/.gitkeep
+*.mp4
+*.mp3
+*.wav
+*.tar.gz
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# editor / tooling
+.claude/
+.vscode/

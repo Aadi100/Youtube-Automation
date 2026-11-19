@@ -1,0 +1,211 @@
+[
+  {
+    "id": "gta6UploadOne01",
+    "name": "Clip Studio - Upload one rendered video (manual)",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "u-man",
+        "name": "Manual run",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          200,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "a1",
+                "name": "video_id",
+                "value": "PASTE-VIDEO-ID-HERE",
+                "type": "string"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "u-pick",
+        "name": "Pick video",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          420,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "url": "=http://127.0.0.1:8765/api/videos/{{ $json.video_id }}",
+          "options": {}
+        },
+        "id": "u-get",
+        "name": "Get video record",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          640,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "url": "=http://127.0.0.1:8765/media/{{ $('Pick video').item.json.video_id }}/video",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "file",
+                "outputPropertyName": "data"
+              }
+            },
+            "timeout": 600000
+          }
+        },
+        "id": "u-file",
+        "name": "Fetch video file",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          860,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "video",
+          "operation": "upload",
+          "title": "={{ $('Get video record').item.json.title }}",
+          "regionCode": "US",
+          "categoryId": "20",
+          "binaryProperty": "data",
+          "options": {
+            "description": "={{ $('Get video record').item.json.description }}",
+            "privacyStatus": "unlisted",
+            "tags": "={{ $('Get video record').item.json.tags.slice(0, 15).join(',') }}",
+            "selfDeclaredMadeForKids": false
+          }
+        },
+        "id": "u-up",
+        "name": "Upload to YouTube (Unlisted)",
+        "type": "n8n-nodes-base.youTube",
+        "typeVersion": 1,
+        "position": [
+          1080,
+          300
+        ],
+        "credentials": {
+          "youTubeOAuth2Api": {
+            "id": "gta6YtCred01",
+            "name": "YouTube - GTA6 Studio"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=http://127.0.0.1:8765/api/videos/{{ $('Pick video').item.json.video_id }}/uploaded",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Requested-With",
+                "value": "studio"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={ \"youtube_id\": \"{{ $('Upload to YouTube (Unlisted)').item.json.uploadId }}\", \"privacy_status\": \"unlisted\" }",
+          "options": {}
+        },
+        "id": "u-rep",
+        "name": "Report to dashboard",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1300,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "content": "Uploads ONE rendered video (set its id in 'Pick video') to YouTube as Unlisted, then marks it 'uploaded' in the dashboard. Needs `python worker.py` running.",
+          "width": 460,
+          "height": 120
+        },
+        "id": "u-note",
+        "name": "Notes",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          200,
+          120
+        ]
+      }
+    ],
+    "connections": {
+      "Manual run": {
+        "main": [
+          [
+            {
+              "node": "Pick video",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Pick video": {
+        "main": [
+          [
+            {
+              "node": "Get video record",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get video record": {
+        "main": [
+          [
+            {
+              "node": "Fetch video file",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch video file": {
+        "main": [
+          [
+            {
+              "node": "Upload to YouTube (Unlisted)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Upload to YouTube (Unlisted)": {
+        "main": [
+          [
+            {
+              "node": "Report to dashboard",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "active": false
+  }
+]

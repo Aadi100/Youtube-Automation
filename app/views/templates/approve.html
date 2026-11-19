@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Approve video</title>
+<style>
+body{margin:0;background:#0e1117;color:#e6e9ef;font:16px/1.5 system-ui,Segoe UI,sans-serif;display:grid;place-items:center;min-height:100vh;padding:16px}
+.c{background:#161b24;border:1px solid #2a3342;border-radius:12px;padding:26px;max-width:520px;width:100%}
+h1{font-size:20px;margin:0 0 6px}.m{color:#8b95a7;margin:0 0 16px}a{color:#00e5ff}
+button{font:inherit;border:0;border-radius:8px;padding:12px 22px;cursor:pointer;font-weight:600;margin:8px 8px 0 0}
+.p{background:#ff3d81;color:#fff}.s{background:#2a3342;color:#e6e9ef}#r{margin-top:14px}
+</style>
+</head>
+<body>
+<div class="c">
+{% if not doc %}
+  <h1>Link not valid</h1>
+  <p class="m">This approval link is invalid, expired, or already used.</p>
+{% else %}
+  <h1>{{ "Decline this video?" if want_decline else "Publish this video?" }}</h1>
+  <p class="m">{{ doc.get("game_name") or "" }} · currently <b>Unlisted</b></p>
+  <p><b>{{ doc.get("title", "") }}</b></p>
+  <p><a href="{{ doc.get('youtube_url') or '#' }}" target="_blank" rel="noopener">Watch it on YouTube</a>
+     · check Studio → Content → <i>Checks</i> for copyright notices first.</p>
+  {% if want_decline %}
+    <button class="p" id="dec">Decline</button><button class="s" id="go">Approve &amp; publish</button>
+  {% else %}
+    <button class="p" id="go">Approve &amp; publish</button><button class="s" id="dec">Decline</button>
+  {% endif %}
+  <div id="r"></div>
+{% raw %}
+  <script>
+  function act(btn,suffix,msg){document.getElementById(btn).onclick=async function(){
+    document.querySelectorAll('button').forEach(function(b){b.disabled=true});
+    var r=document.getElementById('r');r.textContent=msg;
+    try{var x=await fetch(location.pathname.replace(/[/]$/,'')+suffix,{method:'POST',headers:{'X-Requested-With':'studio'}});
+        var d=await x.json();r.textContent=x.ok?'✅ '+d.message:'❌ '+(d.error||'failed');}
+    catch(e){r.textContent='❌ '+e}}}
+  act('go','','Publishing…');act('dec','/decline','Declining…');
+  </script>
+{% endraw %}
+{% endif %}
+</div>
+</body>
+</html>

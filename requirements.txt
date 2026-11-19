@@ -1,0 +1,16 @@
+pillow>=10.0.0
+requests>=2.31
+python-dotenv>=1.0
+yt-dlp>=2024.0.0
+faster-whisper>=1.0.0
+av<17            # faster-whisper breaks on newer PyAV
+google-generativeai>=0.8.0
+edge-tts>=7.0
+pymongo>=4.6
+mongoengine>=0.29     # data models (models.py)
+flask>=3.0            # web app
+waitress>=3.0         # production web server (Windows and Linux)
+cryptography>=42
+nudenet>=3.4
+numpy>=1.26
+PyYAML>=6
