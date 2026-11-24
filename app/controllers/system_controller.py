@@ -65,6 +65,7 @@ def h_health(h):
                  "youtube_api": bool(env.get("YOUTUBE_API_KEY")),
                  "gemini": bool(env.get("GEMINI_API_KEY")), "deepseek": bool(env.get("DEEPSEEK_API_KEY")), "contact_email": bool(env.get("CONTACT_EMAIL"))},
         "music_tracks": len([p for p in MUSIC_DIR.iterdir() if p.suffix.lower() in MUSIC_EXT]),
+        "yt_blocked": __import__("app.engine.yt_access", fromlist=["x"]).blocked_seconds() > 0,
     })
 
 

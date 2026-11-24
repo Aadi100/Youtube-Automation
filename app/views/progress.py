@@ -43,6 +43,8 @@ def friendly_error(err: Optional[str]) -> Optional[str]:
     low = e.lower()
     if re.match(r"^(Choose a part|That video|That creator|Another member|Could not read|Your own commentary|The original clip)", e):
         return e[:200]                       # these were written for the member in the first place
+    if "blocking this server" in low:
+        return "We could not get a clip from YouTube right now. Nothing was charged. Please try again later."
     if "no source available" in low or "no new clips" in low or "nothing usable" in low:
         return "We could not find a new clip this time. Nothing was charged. Please try again in a few minutes."
     if "content-safety" in low or "safety check" in low or "blocked by" in low:

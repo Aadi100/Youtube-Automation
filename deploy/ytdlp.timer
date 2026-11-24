@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly @@APP_NAME@@ downloader update (yt-dlp)
+
+[Timer]
+OnCalendar=Mon *-*-* 04:10:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

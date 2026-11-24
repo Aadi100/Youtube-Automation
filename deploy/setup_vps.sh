@@ -125,6 +125,7 @@ if [ "$MODE" = "preview" ]; then
   mkdir -p "$PREVIEW_DIR"
   render web.service "$PREVIEW_DIR/${APP_NAME}-web.service"; render worker.service "$PREVIEW_DIR/${APP_NAME}-worker.service"
   render backup.service "$PREVIEW_DIR/${APP_NAME}-backup.service"; render backup.timer "$PREVIEW_DIR/${APP_NAME}-backup.timer"
+  render ytdlp.service "$PREVIEW_DIR/${APP_NAME}-ytdlp.service"; render ytdlp.timer "$PREVIEW_DIR/${APP_NAME}-ytdlp.timer"
   [ -z "$DOMAIN" ] || render nginx.conf "$PREVIEW_DIR/nginx-$APP_NAME"
   echo "This studio would be:  name=$APP_NAME  folder=$APP_DIR  user=$APP_USER  database=$MONGODB_DB  port=$PORT  domain=${DOMAIN:-(none, no nginx)}"
   echo "The files it would install are in $PREVIEW_DIR (nothing on this machine was changed):"; ls -1 "$PREVIEW_DIR"
@@ -168,7 +169,9 @@ install_units() {
   render worker.service "/etc/systemd/system/${APP_NAME}-worker.service"
   render backup.service "/etc/systemd/system/${APP_NAME}-backup.service"
   render backup.timer "/etc/systemd/system/${APP_NAME}-backup.timer"
-  chmod 644 /etc/systemd/system/${APP_NAME}-{web,worker,backup}.service /etc/systemd/system/${APP_NAME}-backup.timer
+  render ytdlp.service "/etc/systemd/system/${APP_NAME}-ytdlp.service"
+  render ytdlp.timer "/etc/systemd/system/${APP_NAME}-ytdlp.timer"
+  chmod 644 /etc/systemd/system/${APP_NAME}-{web,worker,backup,ytdlp}.service /etc/systemd/system/${APP_NAME}-backup.timer /etc/systemd/system/${APP_NAME}-ytdlp.timer
   mkdir -p "/var/backups/$APP_NAME"
   chown "$APP_USER:$APP_USER" "/var/backups/$APP_NAME"
 }
@@ -312,7 +315,7 @@ say "Installing the services of $APP_NAME"
 install_units
 systemctl daemon-reload
 systemctl enable "${APP_NAME}-web" "${APP_NAME}-worker" >/dev/null 2>&1
-systemctl enable --now "${APP_NAME}-backup.timer" >/dev/null 2>&1
+systemctl enable --now "${APP_NAME}-backup.timer" "${APP_NAME}-ytdlp.timer" >/dev/null 2>&1
 
 if [ -n "$DOMAIN" ]; then
   say "Setting up nginx for $DOMAIN (only this site; your other sites are not touched)"
@@ -372,6 +375,7 @@ cat <<EOF
   Your keys:            Settings -> Accounts & keys (Gemini, DeepSeek, Claude, Twitch ...). They are saved in $APP_DIR/.env.
   Moving from your PC:  copy TOKEN_ENC_KEY from your PC's .env into $APP_DIR/.env, then  systemctl restart ${APP_NAME}-worker ${APP_NAME}-web.
   Services:             systemctl status ${APP_NAME}-web ${APP_NAME}-worker        logs: journalctl -u ${APP_NAME}-web -f
+  Downloader:           yt-dlp is updated by itself every Monday (YouTube changes often; an old one stops working).
   Backups:              every night at about 03:30 into /var/backups/$APP_NAME (the last 7 are kept).
   Atlas:                keep this server's IP in Atlas -> Network Access. Atlas's free plan has no backups of its own.
   Another studio here:  APP_NAME=studio2 DOMAIN=studio2.yourdomain.com MONGODB_URI='...' bash deploy/setup_vps.sh   (own folder, port, database, nginx site)

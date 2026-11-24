@@ -9,9 +9,11 @@ Every clip keeps its creator + channel link + original video link so videos can 
 Downloaded clips are stored in MongoDB (clips collection) so reruns never repeat.
 """
 from app.models import Claim, Clip, Game, now
+from app.engine import yt_access
 import argparse
 import base64
 import json
+import os
 import re
 import subprocess
 import sys
@@ -57,15 +59,23 @@ def _safe(name: str) -> str:
 
 def _ytdlp(*args: str, capture: bool = False, timeout: Optional[int] = 180) -> str:
     cmd = [sys.executable, "-m", "yt_dlp", "--ffmpeg-location", str(Path(FFMPEG_BIN).parent), "--js-runtimes", "node", *args]   # YouTube needs a JS runtime (node comes with n8n)
+    from app.engine import yt_access
     from app.utils.proc_util import NEW_GROUP, kill_tree
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **NEW_GROUP)
-    try:
-        out, err = p.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        kill_tree(p)   # yt-dlp and the ffmpeg it started
-        p.communicate()
-        raise RuntimeError(f"timed out after {timeout}s")
+    import contextlib
+    # YouTube often refuses a cloud server ("Sign in to confirm you're not a bot"): the owner's cookies / proxy (Settings -> YouTube access) are used for YouTube only
+    with (yt_access.ytdlp_args() if yt_access.uses_youtube(args) else contextlib.nullcontext([])) as extra:
+        cmd[3:3] = extra
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **NEW_GROUP)
+        try:
+            out, err = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_tree(p)   # yt-dlp and the ffmpeg it started
+            p.communicate()
+            raise RuntimeError(f"timed out after {timeout}s")
     if p.returncode != 0:
+        if yt_access.looks_blocked(err):
+            yt_access.note_block(err.strip().splitlines()[-1] if err.strip() else "")
+            raise yt_access.YouTubeBlocked(yt_access.OWNER_MESSAGE)
         lines = [l for l in (err or "").strip().splitlines() if l.strip()]
         raise RuntimeError("yt-dlp: " + " ".join(lines[-2:])[:400])
     return out if capture else ""
@@ -493,6 +503,9 @@ def _from_bank(game: Dict, count: int) -> List[Dict]:
             try:
                 print(f"[Bank] fetching a saved moment: {doc['streamer']} ({int(doc['window'][0])}s-{int(doc['window'][1])}s, score {doc.get('score', 0):.0f})", flush=True)
                 _fetch(doc["url"], f"b{abs(hash(cid)) % 100000}", tuple(doc["window"]), float(doc.get("src_duration") or 0), path)
+            except yt_access.YouTubeBlocked:   # YouTube is refusing right now, the moment itself is fine: keep it for later
+                print("[Bank] YouTube is refusing this server: saved moments kept for later", flush=True)
+                break
             except Exception as e:
                 print(f"[Bank] could not fetch {cid}: {str(e)[:100]}", flush=True)
                 Clip.update_where(id=cid, fields={"status": "expired", "reject_reason": "download failed"})
@@ -629,7 +642,9 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
         raise RuntimeError("No source available. " + " | ".join(errors))
 
     attempts = 0
-    for c in _interleave(ranked):
+    queue, yt_blocked = _interleave(ranked), False
+    while queue:
+        c = queue.pop(0)
         if len(results) >= count:
             break
         attempts += 1
@@ -639,7 +654,12 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
         print(f"[Discovery] candidate {attempts}", flush=True)
         if c.get("source") == "youtube" and not creator:
             from app.engine import region
-            r_ok, r_why, r_name, r_url = region.check_video(c["url"], c.get("channel_url"), c.get("title", ""), c.get("streamer", ""))
+            try:
+                r_ok, r_why, r_name, r_url = region.check_video(c["url"], c.get("channel_url"), c.get("title", ""), c.get("streamer", ""))
+            except yt_access.YouTubeBlocked:
+                yt_blocked = True
+                print("[Discovery] YouTube is refusing this server: stopping", flush=True)
+                break
             if not r_ok:
                 print(f"[Region] skipped {c['streamer']}: {r_why}", flush=True)
                 try:
@@ -662,6 +682,14 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
             pass
         try:
             path = download_candidate(c, game_name=game.get("name", ""), game_id=game.get("id"))
+        except yt_access.YouTubeBlocked:   # not this clip's fault, and every next one would fail the same way: stop here, say why
+            yt_blocked = True
+            print("[Discovery] YouTube is refusing this server: stopping", flush=True)
+            try:
+                Claim.release(c["clip_id"])
+            except Exception:
+                pass
+            break
         except Exception as e:  # one bad clip must not kill the batch
             print(f"[Discovery] skip {c['clip_id']}: {e}")
             try:
@@ -685,6 +713,8 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
         print(f"[Safety] {c['clip_id']}: {why}")
         results.append(item)
         print(f"[Discovery] {c['source']:<7} {c['views']:>8} views  {path.name}")
+    if not results and yt_blocked:
+        raise RuntimeError(yt_access.OWNER_MESSAGE)
     return results
 
 

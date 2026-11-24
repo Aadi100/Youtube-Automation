@@ -1,0 +1,10 @@
+# Keeps yt-dlp (the downloader) current. YouTube changes its pages often and an old yt-dlp stops working, which would silently break the scheduled runs.
+# A template, started every week by <name>-ytdlp.timer. Only the downloader is upgraded; nothing else in the studio is touched.
+[Unit]
+Description=@@APP_NAME@@ downloader update (yt-dlp)
+
+[Service]
+Type=oneshot
+User=@@APP_USER@@
+WorkingDirectory=@@APP_DIR@@
+ExecStart=@@APP_DIR@@/venv/bin/python -m pip install --upgrade --quiet yt-dlp
