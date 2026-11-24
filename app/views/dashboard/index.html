@@ -1126,7 +1126,7 @@ async function overview() {
       <div style="flex:1"><b>${esc(u.game || "-")}</b><div class="muted" style="font-size:12.5px">${kindLabel(u.kind === "shorts" ? "short" : u.kind)} · in ${relTime(new Date(u.at) - now)}</div></div></div>`).join("") : `<div class="muted">Nothing scheduled.</div>`;
     const checks = [["Database", h.mongo.ok, "MongoDB is not reachable", "#/settings"], ["Video engine (FFmpeg)", h.ffmpeg, "FFmpeg not found", "#/settings"],
       ["Gemini (commentary)", h.keys.gemini, "Add the Gemini key", "#/settings"], ["Twitch keys", h.keys.twitch, "Needed for Twitch clips & live chat", "#/settings"],
-      ["Email alerts", h.email, "Set up SMTP to get approval emails", "#/settings"], ["YouTube downloads", !h.yt_blocked, "YouTube is refusing this server: update the cookies (Settings → YouTube access)", "#/settings"], ["Music tracks", h.music_tracks > 0, "Upload royalty-free music", "#/settings"]];
+      ["Email alerts", h.email, "Set up SMTP to get approval emails", "#/settings"], ["YouTube downloads", !h.yt_blocked, "YouTube is refusing this server: check the proxy (Settings → YouTube access)", "#/settings"], ["Music tracks", h.music_tracks > 0, "Upload royalty-free music", "#/settings"]];
     const todo = ME.role === "owner" ? checks.filter(c => !c[1]) : [];
     $("#setup").innerHTML = todo.length ? `<div class="checklist">${todo.map(c => `<div class="it"><span class="dot warn"></span><div class="t"><b>${c[0]}</b><span>${c[2]}</span></div><a href="${c[3]}">Fix</a></div>`).join("")}</div>`
       : `<div class="allclear"><span class="ic">${svg("check")}</span><div><b style="color:var(--text)">All set</b><div>Everything needed is connected.</div></div></div>`;
@@ -3013,7 +3013,7 @@ async function settings() {
      keys: ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET", "YOUTUBE_API_KEY", "GEMINI_API_KEY", "GEMINI_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_RESEARCH_MODEL", "RESEARCH_PROVIDER", "TAVILY_API_KEY", "BRAVE_API_KEY", "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "LLM_SPLIT", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YT_DAILY_UPLOADS", "YT_DAILY_UNITS", "CONTACT_EMAIL"],
      status: ["TWITCH_CLIENT_SECRET", "GEMINI_API_KEY"]},
     {id: "ytx", icon: "videos", title: "YouTube access",
-     desc: "YouTube refuses many cloud servers (\"Sign in to confirm you're not a bot\"). Give the server what YouTube accepts: the cookies of a signed-in browser, or a proxy with a home address. Then press Test."},
+     desc: "YouTube refuses many cloud servers (\"Sign in to confirm you're not a bot\"). The lasting fix is a proxy with a home-type address: paste it here, then press Test."},
     {id: "pricing", icon: "usage", title: "Pricing & costs",
      desc: "What the platforms charge you for each model, what one studio token is worth, what members pay, and what a video earns you. The same prices and costs as the Users and Reports pages."},
     {id: "aud", icon: "globe", title: "Audience & clips",
@@ -3142,42 +3142,38 @@ async function settings() {
       await loadM();
     }
   });
-  /* ---- YouTube access (owner): cookies / proxy so YouTube lets this server download, and a Test button */
+  /* ---- YouTube access (owner): the proxy that lets YouTube talk to this server, and a Test button */
   const loadYtx = guard(async () => {
     const box = $("#ytxcfg"); if (!box) return;
     const st = await api("/api/yt-access");
+    if (!box.isConnected) return;                       // the page was drawn again while this was loading: the new box loads itself
+    const q = s => box.querySelector(s);
     const chip = (ok, yes, no) => `<span class="st ${ok ? "ok" : "warn"}">${ok ? yes : no}</span>`;
     box.classList.remove("muted");
     box.innerHTML = `
       <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:12px">
         ${st.blocked ? `<span class="st warn">YouTube is refusing this server</span>` : st.last_ok ? `<span class="st ok">Working</span>` : `<span class="st">Not tested yet</span>`}
-        ${chip(st.has_cookies, "Cookies saved" + (st.cookies_age_days != null ? ` (${st.cookies_age_days} d old)` : ""), "No cookies")}
         ${chip(st.has_proxy, "Proxy: " + esc(st.proxy_host), "No proxy")}
+        ${st.has_proxy && !st.proxy_ok_type ? `<span class="st warn">Not an http:// address</span>` : ""}
       </div>
       ${st.blocked && st.last_error ? `<div class="help" style="margin-bottom:12px">Last refusal: ${esc(st.last_error)}</div>` : ""}
-      <h3 style="margin:14px 0 6px">1. Cookies of a signed-in browser <span class="muted">(free)</span></h3>
-      <div class="help" style="margin-bottom:8px">Use a spare Google account, not your main one. Sign in to youtube.com with it, install the browser extension <b>Get cookies.txt LOCALLY</b>, open youtube.com and export. Upload that file here. Cookies expire after a few weeks: upload a fresh file when the test fails again. The file is kept on the server only and is never shown.</div>
-      <div class="row"><input type="file" id="ytx_f" accept=".txt,text/plain" class="grow"><button id="ytx_up" class="pri">Upload cookies</button>${st.has_cookies ? `<button id="ytx_rm">Remove</button>` : ""}</div>
-      <h3 style="margin:18px 0 6px">2. A proxy with a home or mobile address <span class="muted">(paid, most reliable)</span></h3>
-      <div class="help" style="margin-bottom:8px">Rent a residential proxy and paste its address, for example <code>http://user:password@host:port</code>. It is used for YouTube only. Stored on this server and never shown again.</div>
+      <h3 style="margin:14px 0 6px">A proxy with a home-type address</h3>
+      <div class="help" style="margin-bottom:8px">YouTube trusts the addresses of real home internet connections and refuses most data-center servers, so the lasting fix is a proxy. Rent a <b>static residential ("ISP") proxy</b> from a proxy provider and paste its address below. Nothing has to be signed in, so nothing expires.</div>
+      <div class="help" style="margin-bottom:8px">When you order: choose the <b>HTTP</b> protocol (SOCKS does not work for cutting clips), a country such as the United States, and allow this server's IP address in the provider's account if it offers that. The address looks like <code>http://user:password@host:port</code>. It is used for YouTube only and is stored on this server and never shown again.</div>
       <div class="row"><input type="password" autocomplete="off" id="ytx_p" class="grow" placeholder="${st.has_proxy ? "Saved (paste a new one to replace it)" : "http://user:password@host:port"}"><button id="ytx_ps" class="pri">Save proxy</button>${st.has_proxy ? `<button id="ytx_pr">Remove</button>` : ""}</div>
       <div class="row" style="margin-top:18px;gap:12px;align-items:center"><button id="ytx_t" class="pri">Test YouTube access now</button><span id="ytx_r" class="muted"></span></div>`;
-    $("#ytx_up").onclick = guard(async () => {
-      const f = $("#ytx_f").files[0]; if (!f) throw new Error("Choose the cookies.txt file first");
-      await api("/api/yt-access/cookies", {method: "POST", body: f, raw: true}); toast("Cookies saved. Press Test."); loadYtx();
-    });
-    if ($("#ytx_rm")) $("#ytx_rm").onclick = guard(async () => { await api("/api/yt-access/cookies", {method: "DELETE"}); toast("Cookies removed"); loadYtx(); });
-    $("#ytx_ps").onclick = guard(async () => {
-      const v = $("#ytx_p").value.trim(); if (!/^(https?|socks5h?):\/\/\S+$/i.test(v)) throw new Error("The proxy must look like http://user:password@host:port");
+    q("#ytx_ps").onclick = guard(async () => {
+      const v = q("#ytx_p").value.trim(); if (!/^https?:\/\/\S+$/i.test(v)) throw new Error("The proxy must be an HTTP proxy: http://user:password@host:port (SOCKS does not work for cutting clips)");
       await api("/api/settings", {method: "PUT", body: {YTDLP_PROXY: v}}); toast("Proxy saved. Press Test."); loadYtx();
     });
-    if ($("#ytx_pr")) $("#ytx_pr").onclick = guard(async () => { await api("/api/yt-access/proxy", {method: "DELETE"}); toast("Proxy removed"); loadYtx(); });
-    $("#ytx_t").onclick = guard(async () => {
-      $("#ytx_r").textContent = "Testing (up to a minute)…"; $("#ytx_t").disabled = true;
-      try { const r = await api("/api/yt-access/test", {method: "POST"}); $("#ytx_r").innerHTML = `<span style="color:var(--${r.ok ? "ok" : "bad"})">${r.ok ? "✔" : "✖"}</span> ${esc(r.message)}`; }
-      finally { $("#ytx_t").disabled = false; }
+    if (q("#ytx_pr")) q("#ytx_pr").onclick = guard(async () => { await api("/api/yt-access/proxy", {method: "DELETE"}); toast("Proxy removed"); loadYtx(); });
+    q("#ytx_t").onclick = guard(async () => {
+      q("#ytx_r").textContent = "Testing (up to a minute)…"; q("#ytx_t").disabled = true;
+      try { const r = await api("/api/yt-access/test", {method: "POST"}); q("#ytx_r").innerHTML = `<span style="color:var(--${r.ok ? "ok" : "bad"})">${r.ok ? "✔" : "✖"}</span> ${esc(r.message)}`; loadYtx_status(r); }
+      finally { q("#ytx_t").disabled = false; }
     });
   });
+  const loadYtx_status = r => { if (r.ok) { const chip = document.querySelector("#ytxcfg .st"); if (chip) { chip.className = "st ok"; chip.textContent = "Working"; } } };
   /* ---- Pricing & costs (owner): what the platforms charge you, what a token is worth, what members pay, and what a video earns */
   const PX_COST_KEYS = ["gemini_in_per_1m", "gemini_out_per_1m", "deepseek_in_per_1m", "deepseek_out_per_1m", "claude_in_per_1m", "claude_out_per_1m", "claude_search_usd", "image_gemini_usd", "image_free_usd", "token_usd"];
   const PX_PRICE_GROUPS = [

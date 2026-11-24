@@ -160,6 +160,9 @@ def _watch(stream: Dict, seconds: int, out: Path) -> None:
     stream["wall0"] = time.time()
     try:
         cmd = [FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-y"]
+        if stream["platform"] == "youtube":
+            from app.engine import yt_access
+            cmd += yt_access.ffmpeg_proxy_args()          # the link is only valid for the address that asked for it (the proxy, when there is one)
         for u in urls:
             cmd += ["-i", u]
         if len(urls) == 2:

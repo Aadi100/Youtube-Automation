@@ -85,10 +85,10 @@ def _stream_urls(url: str) -> List[str]:
     return urls[:2]
 
 
-def _playlist_seconds(url: str) -> float:
+def _playlist_seconds(url: str, proxies=None) -> float:
     """How much past the stream's playlist still holds (the sum of its segment lengths)."""
     try:
-        txt = requests.get(url, timeout=30).text
+        txt = requests.get(url, timeout=30, proxies=proxies).text
         return sum(float(x) for x in re.findall(r"#EXTINF:([\d.]+)", txt))
     except Exception:
         return 0.0
@@ -97,9 +97,13 @@ def _playlist_seconds(url: str) -> float:
 def record_back(url: str, out: Path) -> float:
     """Save everything a live stream still keeps (its recent past) into `out`. Returns the seconds saved."""
     urls = _stream_urls(url)
-    have = _playlist_seconds(urls[0])
+    from app.engine import yt_access
+    yt = "youtu" in url                   # a YouTube link only works from the address that asked for it: use the same proxy
+    have = _playlist_seconds(urls[0], yt_access.requests_proxies() if yt else None)
     seconds = int(min(MAX_LIVE_SECONDS, have if have > 30 else 600))
     cmd = [FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-y"]
+    if yt:
+        cmd += yt_access.ffmpeg_proxy_args()
     for u in urls:
         cmd += ["-live_start_index", "0", "-i", u]
     if len(urls) == 2:

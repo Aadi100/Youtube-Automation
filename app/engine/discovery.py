@@ -62,7 +62,7 @@ def _ytdlp(*args: str, capture: bool = False, timeout: Optional[int] = 180) -> s
     from app.engine import yt_access
     from app.utils.proc_util import NEW_GROUP, kill_tree
     import contextlib
-    # YouTube often refuses a cloud server ("Sign in to confirm you're not a bot"): the owner's cookies / proxy (Settings -> YouTube access) are used for YouTube only
+    # YouTube often refuses a cloud server ("Sign in to confirm you're not a bot"): the owner's proxy (Settings -> YouTube access) is used for YouTube only
     with (yt_access.ytdlp_args() if yt_access.uses_youtube(args) else contextlib.nullcontext([])) as extra:
         cmd[3:3] = extra
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **NEW_GROUP)

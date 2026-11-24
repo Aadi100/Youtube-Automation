@@ -81,21 +81,6 @@ def h_ytaccess(h):
     h.send_json(200, yt_access.status())
 
 
-def h_ytaccess_cookies(h):
-    from app.engine import yt_access
-    n = int(h.headers.get("Content-Length") or 0)
-    if not 0 < n <= 2_000_000:
-        raise ValueError("the file is empty or larger than 2 MB")
-    yt_access.save_cookies(h.rfile.read(n).decode("utf-8", errors="replace"))
-    h.send_json(200, yt_access.status())
-
-
-def h_ytaccess_cookies_delete(h):
-    from app.engine import yt_access
-    yt_access.delete_cookies()
-    h.send_json(200, yt_access.status())
-
-
 def h_ytaccess_proxy_delete(h):
     from app.engine import yt_access
     yt_access.clear_proxy()
@@ -146,8 +131,6 @@ ROUTES = [
     (r"/api/settings", "PUT", h_settings_put),
     (r"/api/claude/models", "GET", h_claude_models),
     (r"/api/yt-access", "GET", h_ytaccess),
-    (r"/api/yt-access/cookies", "POST", h_ytaccess_cookies),
-    (r"/api/yt-access/cookies", "DELETE", h_ytaccess_cookies_delete),
     (r"/api/yt-access/proxy", "DELETE", h_ytaccess_proxy_delete),
     (r"/api/yt-access/test", "POST", h_ytaccess_test),
     (r"/api/music", "GET", h_music),
@@ -155,6 +138,6 @@ ROUTES = [
     (r"/api/music", "DELETE", h_music_delete),
 ]
 OWNER_ONLY.update({h_claude_models, h_settings,h_settings_put, h_email_test, h_music_upload, h_music_delete,
-                   h_ytaccess, h_ytaccess_cookies, h_ytaccess_cookies_delete, h_ytaccess_proxy_delete, h_ytaccess_test})
+                   h_ytaccess, h_ytaccess_proxy_delete, h_ytaccess_test})
 bp = Blueprint("settings", __name__)
 register(bp, ROUTES)

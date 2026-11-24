@@ -2,38 +2,35 @@
 
 YouTube refuses many cloud / datacenter addresses with "Sign in to confirm you're not a bot". The studio handles that itself:
 
-  * it recognises the refusal (YouTubeBlocked) instead of treating every clip as a separate failure,
-  * it stops the run at once with a clear message (it never quietly switches to another source, and does not waste minutes on
-    clips that cannot download), and remembers the refusal (in the database) so Settings can show it,
-  * the owner can give yt-dlp what YouTube accepts, from Settings -> YouTube access:
-        - cookies of a signed-in browser (saved in state/youtube-cookies.txt, readable only by the studio), and / or
-        - a proxy with a home or mobile address (YTDLP_PROXY),
-  * a Test button shows whether it works now.
+  * it recognises the refusal (YouTubeBlocked) and stops the run at once with a clear message (it never quietly switches to another
+    source, and does not waste minutes on clips that cannot download); the refusal is remembered in the database so Settings can show it,
+  * the owner sets a PROXY in Settings -> YouTube access: an HTTP proxy with a home-type address (an "ISP" / residential proxy). YouTube
+    trusts such an address, so nothing has to be signed in and nothing expires,
+  * a Test button shows whether it works now, and the owner is told (dashboard + email, at most every 6 hours) when it stops working.
+
+Cookies are deliberately NOT used. A login exported from a browser is cancelled by YouTube within hours once it is used from another
+place, and it puts the Google account at risk, so it can never be a lasting fix. A cookie file left behind by an older version is deleted.
 """
 import contextlib
 import os
 import re
-import shutil
 import time
-from pathlib import Path
-from typing import Dict, Iterator, List
+from typing import Dict, Iterator, List, Optional
 
 from app.config import STATE_DIR, TEMP_DIR
 from app.utils.envfile import read_env
 
-COOKIES = STATE_DIR / "youtube-cookies.txt"
 BLOCK_MINUTES = 30                      # how long Settings keeps showing "blocked" after a refusal (every new run still tries YouTube again)
 TEST_VIDEO = "https://www.youtube.com/watch?v=jNQXAC9IVRw"   # the first video ever uploaded: always there
 _BLOCK = re.compile(r"sign in to confirm|not a bot|confirm you.{0,4}re not|HTTP Error 429|Too Many Requests", re.I)
-_MAX_COOKIE_BYTES = 2_000_000
 
 
 class YouTubeBlocked(RuntimeError):
     """YouTube refused this server's download request (not a problem with one particular video)."""
 
 
-OWNER_MESSAGE = ("YouTube is blocking this server (it asks to sign in to prove it is not a bot). Open Settings -> YouTube access: "
-                 "add the cookies of a signed-in browser, or a proxy.")
+OWNER_MESSAGE = ("YouTube is blocking this server (it asks to sign in to prove it is not a bot). Open Settings -> YouTube access and add or check "
+                 "the proxy (an http:// residential / ISP proxy).")
 MEMBER_MESSAGE = "We could not get a clip from YouTube right now. Nothing was charged. Please try again later."
 
 
@@ -45,39 +42,49 @@ def uses_youtube(args) -> bool:
     return any(isinstance(a, str) and ("youtube.com" in a or "youtu.be" in a or a.startswith("ytsearch")) for a in args)
 
 
-# --------------------------------------------------------------------------------- what is configured
+# --------------------------------------------------------------------------------- the proxy
 def proxy() -> str:
     return (os.environ.get("YTDLP_PROXY") or read_env().get("YTDLP_PROXY", "")).strip()
 
 
-def has_cookies() -> bool:
+def _forget_old_cookies() -> None:
+    """Older versions kept a cookie file here. Cookies are not used any more: the file (and any temporary copy) is deleted."""
     try:
-        return COOKIES.is_file() and COOKIES.stat().st_size > 50
+        (STATE_DIR / "youtube-cookies.txt").unlink(missing_ok=True)
+        for p in TEMP_DIR.glob("ytck_*.txt"):
+            p.unlink(missing_ok=True)
     except OSError:
-        return False
+        pass
+
+
+_cleaned = False
+
+
+def _clean_once() -> None:
+    global _cleaned
+    if not _cleaned:
+        _cleaned = True
+        _forget_old_cookies()
 
 
 @contextlib.contextmanager
 def ytdlp_args() -> Iterator[List[str]]:
-    """Extra yt-dlp options. The cookie file is copied for each call: yt-dlp writes to it, and several videos run at once."""
-    extra: List[str] = []
-    tmp = None
+    """Extra yt-dlp options for a YouTube call: the proxy, when there is one."""
+    _clean_once()
     p = proxy()
-    if p:
-        extra += ["--proxy", p]
-    if has_cookies():
-        tmp = TEMP_DIR / f"ytck_{os.getpid()}_{time.time_ns()}.txt"
-        try:
-            shutil.copyfile(COOKIES, tmp)
-            os.chmod(tmp, 0o600)
-            extra += ["--cookies", str(tmp)]
-        except OSError:
-            tmp = None
-    try:
-        yield extra
-    finally:
-        if tmp:
-            tmp.unlink(missing_ok=True)
+    yield ["--proxy", p] if p else []
+
+
+def ffmpeg_proxy_args() -> List[str]:
+    """ffmpeg reads YouTube live streams itself (yt-dlp only finds the link), and a YouTube link only works from the address that asked for it:
+    so ffmpeg must use the same proxy. ffmpeg understands HTTP proxies only (not SOCKS), so an http:// proxy is the one to rent."""
+    p = proxy()
+    return ["-http_proxy", p] if p.lower().startswith(("http://", "https://")) else []
+
+
+def requests_proxies() -> Optional[Dict[str, str]]:
+    p = proxy()
+    return {"http": p, "https": p} if p.lower().startswith(("http://", "https://")) else None
 
 
 # --------------------------------------------------------------------------------- what happened last (shared through the database)
@@ -111,15 +118,15 @@ def _ask_owner() -> None:
         if time.time() - sent < 6 * 3600:
             return
         System.set_fields("alerts", {"sent.ytaccess": time.time()}, upsert=True)
-        if has_cookies():
-            title, text = ("YouTube cookies need updating",
-                           "YouTube is refusing this server again, so the saved cookies have expired. Sign in to YouTube in your browser with the same spare account, "
-                           "export the cookies again (Get cookies.txt LOCALLY), and upload the new file in Settings -> YouTube access, then press Test. "
+        if proxy():
+            title, text = ("YouTube is refusing the server",
+                           "YouTube refused the server even through the proxy. The proxy may have expired, run out of data, or been blocked. "
+                           "Open Settings -> YouTube access, check it with the Test button and renew or replace it. "
                            "Videos that need YouTube clips fail until then.")
         else:
             title, text = ("YouTube is refusing the server",
-                           "YouTube is asking this server to sign in (a bot check), so videos that need YouTube clips fail. Open Settings -> YouTube access, "
-                           "upload the cookies of a signed-in browser (or add a proxy) and press Test.")
+                           "YouTube is asking this server to sign in (a bot check), so videos that need YouTube clips fail. "
+                           "Open Settings -> YouTube access, add a proxy (an http:// residential / ISP proxy) and press Test.")
         from app.services import notification_service as notes
         notes.notify_owner("system", title, text, "#/settings", "warn", key="sys-ytaccess")
         from app.services import notify_service as notify
@@ -141,48 +148,22 @@ def clear_block() -> None:
 
 
 def blocked_seconds() -> int:
-    """Seconds until YouTube is tried again (0 = not blocked)."""
+    """Seconds until Settings stops showing 'blocked' (0 = not blocked)."""
     left = float(_doc().get("blocked_until") or 0) - time.time()
     return int(left) if left > 0 else 0
 
 
 def status() -> Dict:
+    _clean_once()
     d = _doc()
-    age = None
-    if has_cookies():
-        age = int((time.time() - COOKIES.stat().st_mtime) // 86400)
     px = proxy()
     return {"blocked": blocked_seconds() > 0, "blocked_minutes": (blocked_seconds() + 59) // 60,
             "last_error": d.get("last_error") or "", "last_ok": d.get("last_ok") or 0,
-            "has_cookies": has_cookies(), "cookies_age_days": age,
-            "has_proxy": bool(px), "proxy_host": re.sub(r"^[a-z0-9+]+://([^@/]*@)?", "", px).split("/")[0] if px else ""}
+            "has_proxy": bool(px), "proxy_host": re.sub(r"^[a-z0-9+]+://([^@/]*@)?", "", px).split("/")[0] if px else "",
+            "proxy_ok_type": (not px) or px.lower().startswith(("http://", "https://"))}
 
 
 # --------------------------------------------------------------------------------- the owner's controls
-def save_cookies(text: str) -> None:
-    text = (text or "").replace("\r\n", "\n").strip() + "\n"
-    if len(text.encode("utf-8")) > _MAX_COOKIE_BYTES:
-        raise ValueError("that file is too large to be a cookie file")
-    rows = [l for l in text.splitlines() if l.strip() and (not l.startswith("#") or l.startswith("#HttpOnly_"))]
-    good = [l for l in rows if len(l.split("\t")) >= 7]
-    if not good:
-        raise ValueError("this is not a cookies.txt file (it must be the Netscape format that the 'Get cookies.txt LOCALLY' extension saves)")
-    if not any(re.search(r"(^|\.)youtube\.com\t|(^|\.)google\.com\t", l.split("\t")[0] + "\t") for l in good):
-        raise ValueError("this file has no youtube.com / google.com cookies. Export them while you are on youtube.com and signed in")
-    if not any(l.split("\t")[5] in ("SID", "__Secure-3PSID", "LOGIN_INFO", "SAPISID", "__Secure-1PSID") for l in good if len(l.split("\t")) >= 6):
-        raise ValueError("the file has no signed-in cookies. Sign in to YouTube in that browser first, then export again")
-    COOKIES.parent.mkdir(parents=True, exist_ok=True)
-    tmp = COOKIES.with_suffix(".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    tmp.replace(COOKIES)
-    clear_block()
-
-
-def delete_cookies() -> None:
-    COOKIES.unlink(missing_ok=True)
-
-
 def clear_proxy() -> None:
     from app.utils.envfile import write_env
     write_env({"YTDLP_PROXY": ""})
@@ -191,15 +172,34 @@ def clear_proxy() -> None:
 
 
 def test() -> Dict:
-    """Ask YouTube for one public video the way the studio does, and say what happened in plain words."""
+    """Is the proxy reachable, and does YouTube answer through it? Says what happened in plain words."""
     from app.engine import discovery
+    px = proxy()
+    seen_ip = ""
+    if px:
+        if not px.lower().startswith(("http://", "https://")):
+            return {"ok": False, "blocked": False, "message": "The proxy must be an http:// address (SOCKS does not work for cutting clips)."}
+        try:                                  # first the proxy itself: a wrong password or an address that is not allowed gives a clear answer here
+            import requests
+            r = requests.get("https://api.ipify.org", proxies={"http": px, "https": px}, timeout=20)
+            if r.status_code != 200:
+                raise RuntimeError(f"answered {r.status_code}")
+            seen_ip = r.text.strip()[:45]
+        except Exception as e:
+            why = "wrong user name or password" if "407" in str(e) else "no answer"
+            return {"ok": False, "blocked": False,
+                    "message": f"The proxy did not answer ({why}). Check the address, port, user name and password, that this server's IP is allowed in your "
+                               f"proxy account, and that it has not expired. ({type(e).__name__})"}
     try:
         discovery._ytdlp("-J", "--no-playlist", "--skip-download", TEST_VIDEO, capture=True, timeout=75)
     except YouTubeBlocked:
-        return {"ok": False, "blocked": True,
-                "message": "YouTube still refuses this server" + (" even with your cookies." if has_cookies() else ".")
-                           + (" Try fresh cookies (they expire), or a different proxy." if has_cookies() or proxy() else " Add cookies or a proxy below, then test again.")}
+        if px:
+            msg = ("YouTube refuses this server even through the proxy" + (f" ({seen_ip})" if seen_ip else "") +
+                   ". Try another address from the provider, or ask them for a residential address in another city.")
+        else:
+            msg = "YouTube refuses this server. Add a proxy below, then test again."
+        return {"ok": False, "blocked": True, "message": msg}
     except Exception as e:
         return {"ok": False, "blocked": False, "message": "The test could not finish: " + str(e)[:240]}
     note_ok()
-    return {"ok": True, "message": "YouTube answered: downloads from this server work."}
+    return {"ok": True, "message": "YouTube answered" + (f" through your proxy ({seen_ip})." if px else ": downloads from this server work.")}
