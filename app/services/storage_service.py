@@ -79,6 +79,12 @@ def _remove(p: Optional[str]) -> int:
     return 0
 
 
+def _needed_for_remake(path: str) -> bool:
+    """A clip file is kept while a video made from it is still waiting to be uploaded (its audio can still be changed)."""
+    c = Clip.find_one(path=path)
+    return bool(c and Video.total(clip_ids=str(c["_id"]), youtube_id=None, status="rendered"))
+
+
 def cleanup() -> Dict:
     current = now()
     freed = removed_videos = 0
@@ -101,7 +107,7 @@ def cleanup() -> Dict:
         for f in files:
             p = Path(root) / f
             try:
-                if p.stat().st_mtime < cutoff_ts and not Clip.find_one(path=str(p), status="banked"):
+                if p.stat().st_mtime < cutoff_ts and not Clip.find_one(path=str(p), status="banked") and not _needed_for_remake(str(p)):
                     freed += p.stat().st_size
                     p.unlink()
                     removed_inputs += 1

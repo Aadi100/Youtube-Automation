@@ -1,5 +1,5 @@
 """Accounts: users, login sessions, failed-login log, per-user preferences."""
-from mongoengine import DateTimeField, IntField, ObjectIdField, StringField
+from mongoengine import BooleanField, DateTimeField, IntField, ObjectIdField, StringField
 
 from app.models.base import Doc
 
@@ -11,6 +11,7 @@ class User(Doc):
     role = StringField(default="member")          # owner | member
     status = StringField(default="active")        # active | pending | disabled
     tokens = IntField(default=0)
+    upload_limit = IntField()                     # uploads per day set by the owner for this member (empty = the default for everybody)
     created_at = DateTimeField()
     last_login = DateTimeField()
     meta = {"collection": "users", "indexes": [{"fields": ["email"], "unique": True}]}
@@ -38,3 +39,18 @@ class UserPrefs(Doc):
     def of(cls, uid) -> dict:
         """The preferences of one user ({} when there are none)."""
         return (cls.find_one(id=str(uid)) or {}) if uid else {}
+
+
+class Notification(Doc):
+    """One message in a member's bell: what happened, a link to where to look, and whether it was read."""
+    user_id = StringField()
+    kind = StringField()
+    title = StringField()
+    body = StringField()
+    link = StringField()
+    level = StringField(default="info")           # info | success | warn | error
+    key = StringField()                           # the same problem is shown once, not every few minutes
+    read = BooleanField(default=False)
+    created_at = DateTimeField()
+    meta = {"collection": "notifications", "indexes": [("user_id", "-created_at"), ("user_id", "read"),
+                                                       {"fields": ["created_at"], "expireAfterSeconds": 60 * 86400}]}

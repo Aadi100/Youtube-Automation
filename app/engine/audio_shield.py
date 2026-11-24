@@ -43,7 +43,10 @@ def template_commentary(streamer: str, title: str, game_name: str, max_words: in
 
 
 def write_commentary(transcript: str, streamer: str, title: str, max_words: int, game_name: str = "") -> Optional[str]:
-    """Short original commentary: Gemini (with backup models), else the built-in template. Never returns None."""
+    """Short original commentary: the member's own text if they wrote it, else Gemini / DeepSeek, else the built-in template. Never returns None."""
+    own = " ".join((os.environ.get("DIY_COMMENTARY") or "").split())
+    if own:
+        return " ".join(own.split()[:max_words])
     try:
         from app.engine import llm
         prompt = (
@@ -95,7 +98,10 @@ def _voice() -> str:
 
 def synthesize(text: str, out_mp3: Path) -> List[Dict]:
     """TTS to mp3. Returns word timings (for captions)."""
-    return asyncio.run(_tts(text, out_mp3))
+    words = asyncio.run(_tts(text, out_mp3))
+    from app.models import UsageEvent
+    UsageEvent.record("tts", provider="edge-tts", task="commentary", units=len(text))
+    return words
 
 
 def build_audio(video: Path, mode: str, stem: str, transcript: str = "",

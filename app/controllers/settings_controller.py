@@ -1,4 +1,5 @@
 """Controller (the C of MVC): settings endpoints."""
+import os
 import re
 from pathlib import Path
 from urllib.parse import unquote
@@ -62,7 +63,13 @@ def h_settings_put(h):
         upd[k] = v
     if upd:
         write_env(upd)
+        os.environ.update(upd)          # the running studio uses the new keys at once (the file alone is only read at start-up)
     h_settings(h)
+
+
+def h_claude_models(h):
+    from app.engine import claude_util
+    h.send_json(200, {"models": claude_util.list_models(force=h.q.get("refresh") == "1"), "default": claude_util.DEFAULT_MODEL})
 
 
 def h_music(h):
@@ -102,10 +109,11 @@ ROUTES = [
     (r"/api/email/test", "POST", h_email_test),
     (r"/api/settings", "GET", h_settings),
     (r"/api/settings", "PUT", h_settings_put),
+    (r"/api/claude/models", "GET", h_claude_models),
     (r"/api/music", "GET", h_music),
     (r"/api/music", "POST", h_music_upload),
     (r"/api/music", "DELETE", h_music_delete),
 ]
-OWNER_ONLY.update({h_settings, h_settings_put, h_email_test, h_music_upload, h_music_delete})
+OWNER_ONLY.update({h_claude_models, h_settings,h_settings_put, h_email_test, h_music_upload, h_music_delete})
 bp = Blueprint("settings", __name__)
 register(bp, ROUTES)

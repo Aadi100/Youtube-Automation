@@ -56,6 +56,8 @@ def h_me(h):
 def h_password(h):
     d = h.body_json()
     auth.change_password(h.uid, d.get("old"), d.get("new"))
+    from app.services import profile_service
+    profile_service.end_other_sessions(h.uid, h.session_token())      # a new password signs every other device out
     h.send_json(200, {"ok": True, "message": "Password changed."})
 
 
@@ -71,6 +73,8 @@ def h_prefs_put(h):
         if v and v not in AUDIO:
             raise ValueError("bad audio mode")
         upd["default_audio"] = v
+    if "hold_uploads" in d:
+        upd["hold_uploads"] = bool(d["hold_uploads"])
     if "notify_to" in d:
         v = str(d["notify_to"] or "").strip()[:120]
         if v and not auth.EMAIL_RE.match(v):

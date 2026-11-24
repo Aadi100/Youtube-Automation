@@ -1,4 +1,4 @@
-from app.models import Clip, Game, Video
+from app.models import Claim, Clip, Game, Video, now
 import argparse
 import json
 import os
@@ -41,11 +41,11 @@ def credit_for(c: Dict) -> Dict:
 def _write_manifest(data: Dict) -> Dict:
     """Save the render to MongoDB and to last_run.json (title/description/tags/paths ready for upload)."""
     try:
-        data["video_id"] = Video.save_manifest(data, job_id=os.environ.get("GTA6_JOB_ID"))
+        data["video_id"] = Video.save_manifest(data, job_id=os.environ.get("CLIPSTUDIO_JOB_ID"))
     except Exception as e:  # the render is done; a DB outage must not lose it
         data["video_id"] = None
         print(f"[Warning] Could not save to MongoDB: {e}")
-    target = Path(os.environ.get("GTA6_MANIFEST") or MANIFEST)   # the server gives every job its own manifest file
+    target = Path(os.environ.get("CLIPSTUDIO_MANIFEST") or MANIFEST)   # the server gives every job its own manifest file
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"MANIFEST: {target}")
@@ -67,6 +67,10 @@ def _manifest(kind: str, video: Path, thumb: Path, meta: Dict, audio_mode: str, 
         "game_id": game.get("id"),
         "game_name": game.get("name"),
         "credits": credits,
+        "thumb_style": __import__("app.engine.thumbnail_generator", fromlist=["x"]).LAST.get("style"),
+        "content_type": meta.get("content_type"),
+        "thumb_recipe": __import__("app.engine.thumbnail_generator", fromlist=["x"]).LAST.get("recipe"),
+        "thumb_tier": __import__("app.engine.thumbnail_generator", fromlist=["x"]).LAST.get("tier"),
     }
 
 
@@ -82,6 +86,7 @@ def run_short_pipeline(
     game: Optional[Dict] = None,
     credits: Optional[List[Dict]] = None,
     hook: str = "",
+    remix: Optional[Dict] = None,
 ) -> Dict:
     game = game or Game.default_data()
     print(f"\n=== SHORTS PIPELINE [{game['name']}]: {input_video.name} (audio: {audio_mode}) ===")
@@ -99,20 +104,72 @@ def run_short_pipeline(
                 else make_short_blurred(**kwargs))
 
     credits = credits or [{"creator": streamer_name}]
-    meta = generate_seo_metadata(video_type="short", topic=topic, streamers=[streamer_name], context=f"{hook}. What was said: {transcript[:700]}".strip(". "),
-                                 game=game, credits=credits)
+    if remix:    # the video keeps its own title, description and thumbnail: no new AI text, no new image
+        meta = {"title": remix.get("title") or "", "description": remix.get("description") or ""}
+    else:
+        meta = generate_seo_metadata(video_type="short", topic=topic, streamers=[streamer_name], context=f"{hook}. What was said: {transcript[:700]}".strip(". "),
+                                     game=game, credits=credits)
     from app.engine.safety import check_final_video
     ok, why = check_final_video(rendered, meta.get("title", ""), meta.get("description", ""))
     if not ok:
         raise SystemExit(f"Blocked by the content-safety check: {why}")
     print(f"[Safety] final video: {why}")
-    thumb = generate_thumbnail(video_path=input_video, output_path=rendered.with_name(f"{rendered.stem}_9x16_thumb.jpg"), headline=meta["thumb_headline"],
-                               subtext=meta["thumb_subtext"], mode="9:16", game_name=game.get("name"), scene=meta.get("thumb_scene", ""))
+    if remix:
+        return _finish_remix(remix, rendered, audio_used)
+    from app.engine import content_ai
+    ctype, _conf = content_ai.classify(topic, hook, transcript[:900], meta.get("title", ""))
+    meta["content_type"] = ctype
+    thumb = generate_thumbnail(video_path=input_video, art_stem=rendered, output_path=rendered.with_name(f"{rendered.stem}_9x16_thumb.jpg"), headline=meta["thumb_headline"],
+                               subtext=meta["thumb_subtext"], mode="9:16", game_name=game.get("name"), scene=meta.get("thumb_scene", ""), content_type=ctype,
+                               context={"title": meta.get("title", ""), "hook": hook or topic, "topic": topic})
 
     meta_file = rendered.with_suffix(".json")
     meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Short: {rendered}\nCover: {thumb}\nMeta:  {meta_file}")
     return _write_manifest(_manifest("short", rendered, thumb, meta, audio_used, clip_ids or [], game, credits))
+
+
+def _finish_remix(doc: Dict, rendered: Path, audio_used: str) -> Dict:
+    """The remade file replaces the old one on the same video (same title, description, thumbnail, same place in the library)."""
+    old = doc.get("video_path")
+    Video.update_where(id=doc["_id"], fields={"video_path": str(rendered), "audio_mode": audio_used, "remade_at": now()}, unset=("remix_error",))
+    if old and Path(old).resolve() != Path(rendered).resolve():
+        Path(old).unlink(missing_ok=True)
+    data = {"video_id": str(doc["_id"]), "kind": doc.get("kind"), "video_path": str(rendered), "audio_mode": audio_used}
+    target = Path(os.environ.get("CLIPSTUDIO_MANIFEST") or MANIFEST)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"MANIFEST: {target}")
+    return data
+
+
+def run_remix(video_id: str, audio_mode: str) -> Dict:
+    """Make an existing, not yet uploaded video again with different audio (AI commentary + music, original audio, or original under music),
+    from the clips it was made of. Title, description and thumbnail stay as they are."""
+    from app.engine.safety import check_final_video
+    from app.models import oid
+    doc = Video.find_one(id=oid(video_id))
+    if not doc:
+        raise SystemExit("That video no longer exists.")
+    if doc.get("youtube_id"):
+        raise SystemExit("This video is already on YouTube, so its audio can no longer be changed.")
+    print(f"[Remix] start: new audio '{audio_mode}' for '{(doc.get('title') or '')[:60]}'", flush=True)
+    clips = [c for c in (Clip.find_one(id=cid) for cid in (doc.get("clip_ids") or [])) if c]
+    if not clips or any(not c.get("path") or not Path(c["path"]).is_file() for c in clips):
+        raise SystemExit("The original clip files were already cleaned up, so the audio cannot be changed. Make a new video instead.")
+    game = Game.get_for(doc.get("game_id")) or {"id": doc.get("game_id"), "name": doc.get("game_name") or "Gaming"}
+    if doc.get("kind") == "short":
+        c = clips[0]
+        return run_short_pipeline(Path(c["path"]), "blur", "0:0:640:360", True, c.get("streamer") or "Streamer", c.get("title") or doc.get("title") or "Clip",
+                                  audio_mode, doc.get("clip_ids"), game=game, credits=doc.get("credits"), hook="", remix=doc)
+    chosen = [{**c, "path": Path(c["path"]), "views": c.get("views", 0)} for c in sorted(clips, key=lambda c: c.get("views", 0), reverse=True)]
+    print(f"\n=== COMPILATION PIPELINE [{game['name']}]: remaking '{doc.get('title')}' (audio: {audio_mode}) ===", flush=True)
+    result = create_compilation(clips=chosen, compilation_title=doc.get("title") or "Compilation", audio_mode=audio_mode, game_name=game["name"])
+    ok, why = check_final_video(result["video_path"], doc.get("title") or "", doc.get("description") or "")
+    if not ok:
+        raise SystemExit(f"Blocked by the content-safety check: {why}")
+    print(f"[Safety] final video: {why}", flush=True)
+    return _finish_remix(doc, Path(result["video_path"]), audio_mode)
 
 
 def _clips_from_dir(input_dir: Path) -> List[Dict]:
@@ -164,7 +221,7 @@ def run_compilation_pipeline(
 
     meta = generate_seo_metadata(video_type="compilation", topic=topic or compilation_title,
                                  streamers=streamers, chapters=result["chapters"], game=game, credits=credits)
-    thumb = generate_thumbnail(video_path=video_path, headline=meta["thumb_headline"],
+    thumb = generate_thumbnail(video_path=video_path, art_stem=video_path, headline=meta["thumb_headline"],
                                subtext=meta["thumb_subtext"], mode="16:9", game_name=game.get("name"), scene=meta.get("thumb_scene", ""))
 
     meta_file = video_path.with_suffix(".json")
@@ -174,10 +231,81 @@ def run_compilation_pipeline(
     return _write_manifest(_manifest("compilation", video_path, thumb, meta, audio_mode, ids, game, credits))
 
 
+def own_clip(url: str, start: float, end: float, game: Dict) -> Dict:
+    """The member chose the clip: a YouTube link plus the part they want (15-58 s). No search, no AI scoring, no AI moment picking -
+    but the same rules as every other clip: uniqueness between members, creator credit, region and content-safety checks."""
+    from app.engine import discovery, region, safety
+    info = json.loads(discovery._ytdlp("-J", "--no-playlist", url, capture=True, timeout=90))
+    vid = info.get("id") or ""
+    if not vid:
+        raise SystemExit("Could not read that video link.")
+    dur = float(info.get("duration") or 0)
+    if end - start < 15 or end - start > 58:
+        raise SystemExit("Choose a part between 15 and 58 seconds long.")
+    if dur and end > dur + 1:
+        raise SystemExit(f"That video is only {int(dur)} seconds long.")
+    if int(info.get("age_limit") or 0) >= 18 and safety.enabled():
+        raise SystemExit("That video is age-restricted, so it cannot be used.")
+    ok, why, name, curl = region.check_video(url, info.get("channel_url"), info.get("title", ""), info.get("channel") or info.get("uploader") or "")
+    if not ok:
+        raise SystemExit(f"That creator is outside the allowed regions: {why}")
+    cid = f"yt_{vid}"
+    if not Claim.source(cid):
+        raise SystemExit("Another member already uses this video, so it cannot be used again (every post must be unique).")
+    streamer = name or info.get("channel") or info.get("uploader") or "Creator"
+    title = info.get("title") or "Clip"
+    out = INPUT_DIR / f"{discovery._safe(streamer)} - {discovery._safe(title)}.mp4"
+    try:
+        discovery._fetch(url, cid, (start, end), dur, out)
+        ok, why = safety.check_clip(out, title, streamer, age_limit=int(info.get("age_limit") or 0))
+        if not ok:
+            out.unlink(missing_ok=True)
+            raise SystemExit(f"Blocked by the content-safety check: {why}")
+    except BaseException:
+        Claim.release(cid)
+        raise
+    print(f"[Own clip] {streamer} - {title[:60]} ({int(start)}s-{int(end)}s): {why}", flush=True)
+    Clip.save_downloaded({"clip_id": cid, "source": "youtube", "game_id": game.get("id"), "channel_url": curl or info.get("channel_url"),
+                          "streamer": streamer, "title": title, "views": int(info.get("view_count") or 0), "url": url, "path": str(out)})
+    return {"clip_id": cid, "path": str(out), "streamer": streamer, "title": title, "source": "youtube", "url": url, "channel_url": curl or info.get("channel_url")}
+
+
+def own_clip_file(path: str, game: Dict) -> Dict:
+    """A moment the member chose in the clip finder: the studio already cut it into a file. Same rules as every clip: it is theirs alone
+    (one member per moment), the creator is credited, and it goes through the full safety check."""
+    from app.engine import safety
+    p = Path(path).resolve()
+    root = (INPUT_DIR / "finder").resolve()
+    try:
+        p.relative_to(root)
+    except ValueError:
+        raise SystemExit("That clip file is not one the clip finder made.")
+    if not p.is_file():
+        raise SystemExit("The chosen clip file is missing. Pick the moment again.")
+    meta = json.loads(os.environ.get("CLIP_META") or "{}")
+    streamer, title = meta.get("streamer") or "Creator", meta.get("title") or "Clip"
+    cid = meta.get("claim") or f"fc_{p.stem}"
+    if not Claim.source(cid):
+        p.unlink(missing_ok=True)
+        raise SystemExit("Another member already uses this moment, so it cannot be used again (every post must be unique).")
+    try:
+        ok, why = safety.check_clip(p, title, streamer)
+        if not ok:
+            p.unlink(missing_ok=True)
+            raise SystemExit(f"Blocked by the content-safety check: {why}")
+    except BaseException:
+        Claim.release(cid)
+        raise
+    print(f"[Finder clip] {streamer} - {title[:60]}: {why}", flush=True)
+    Clip.save_downloaded({"clip_id": cid, "source": meta.get("source") or "youtube", "game_id": game.get("id"), "channel_url": meta.get("channel_url"),
+                          "streamer": streamer, "title": title, "views": 0, "url": meta.get("url"), "path": str(p)})
+    return {"clip_id": cid, "path": str(p), "streamer": streamer, "title": title, "source": meta.get("source") or "youtube", "url": meta.get("url"), "channel_url": meta.get("channel_url")}
+
+
 def main():
     p = argparse.ArgumentParser(description="Clip Studio: clips -> edited videos for any game")
     p.add_argument("--mode", required=True,
-                   choices=["short", "compilation", "auto-short", "auto-compilation"],
+                   choices=["short", "compilation", "auto-short", "auto-compilation", "remix"],
                    help="short/compilation = use local files; auto-* = download fresh clips first")
     p.add_argument("--game", default="auto",
                    help="game id from the Games tab; 'auto' = the enabled game used longest ago")
@@ -196,10 +324,20 @@ def main():
     p.add_argument("--hours", type=int, default=24, help="auto modes: look back this many hours")
     p.add_argument("--count", type=int, default=14, help="auto-compilation: clips to download")
     p.add_argument("--target-minutes", type=float, default=8.0)
+    p.add_argument("--video-id", default="", help="remix: the video to make again with a different audio mode")
+    p.add_argument("--url", default="", help="auto-short: use this YouTube video instead of searching (with --start and --end)")
+    p.add_argument("--creator", default="", help="auto modes: only use clips from this creator (Twitch name or YouTube channel)")
+    p.add_argument("--creator-platform", choices=["", "twitch", "youtube"], default="")
+    p.add_argument("--clip-file", default="", help="auto-short: use this clip file made by the clip finder")
+    p.add_argument("--start", type=float, default=0.0)
+    p.add_argument("--end", type=float, default=0.0)
     a = p.parse_args()
 
     if a.voice and re.fullmatch(r"(random|en-[A-Za-z]{2}-\w+Neural)", a.voice):
         os.environ["TTS_VOICE_OVERRIDE"] = a.voice
+    if a.mode == "remix":
+        run_remix(a.video_id, a.audio_mode)
+        return
     game = resolve(a.game)
     print(f"[Game] {game['name']}")
 
@@ -210,7 +348,7 @@ def main():
             """Nothing new for this game? widen the window; still nothing? try the other enabled games (when Auto)."""
             nonlocal game
             order = [game]
-            if a.game == "auto":
+            if a.game == "auto" and not a.creator:
                 try:
                     order += [g for g in sorted((g for g in Game.list_for() if g.get("enabled", True)), key=lambda g: g.get("last_used_at") or "")
                               if g["id"] != game["id"]]
@@ -247,18 +385,28 @@ def main():
                 raise last_err
             return []
 
-        if a.mode == "auto-short":
+        creator = {"platform": a.creator_platform, "name": a.creator} if a.creator else None
+        if creator:
+            print(f"[Creator] only clips from {a.creator} ({a.creator_platform or 'from the link'})", flush=True)
+        if a.mode == "auto-short" and a.clip_file:
+            found = [own_clip_file(a.clip_file, game)]
+        elif a.mode == "auto-short" and a.url:
+            found = [own_clip(a.url, a.start, a.end, game)]
+        elif a.mode == "auto-short":
             found = discover_and_download(count=1, hours=a.hours, source=a.source, min_views=1,
-                                          min_seconds=15, max_seconds=58, game=game)
+                                          min_seconds=15, max_seconds=58, game=game, creator=creator)
             if not found:
                 raise SystemExit("No new clips found.")
+        if creator and a.game == "auto" and found and found[0].get("game_name"):
+            game = {**game, "name": found[0]["game_name"]}       # a creator's clip knows its game: use it for the title and thumbnail
+        if a.mode == "auto-short":
             c = found[0]
             out = run_short_pipeline(Path(c["path"]), a.layout, a.cam_crop, not a.no_subtitles,
                                      c["streamer"], c["title"], a.audio_mode, [c["clip_id"]],
                                      game=game, credits=[credit_for(c)], hook=c.get("hook", ""))
         else:
             found = discover_and_download(count=a.count, hours=a.hours, source=a.source,
-                                          min_seconds=15, max_seconds=60, game=game)
+                                          min_seconds=15, max_seconds=60, game=game, creator=creator)
             if not found:
                 raise SystemExit("No new clips found.")
             clips = [{**c, "path": Path(c["path"])} for c in found]

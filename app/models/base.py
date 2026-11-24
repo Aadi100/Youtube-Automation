@@ -25,7 +25,7 @@ def connect():
     """Open the MongoEngine connection once (lazy: no network until the first query). Returns the pymongo database behind it."""
     global _connected
     if not _connected:
-        mongoengine.connect(db=MONGODB_DB, host=MONGODB_URI, tz_aware=True, serverSelectionTimeoutMS=4000)
+        mongoengine.connect(db=MONGODB_DB, host=MONGODB_URI, tz_aware=True, serverSelectionTimeoutMS=int(os.environ.get("MONGODB_TIMEOUT_MS") or 4000))   # a database on the internet (Atlas) needs longer than one on this machine
         _connected = True
     return mongoengine.connection.get_db()
 
@@ -70,8 +70,8 @@ def clean(doc: Optional[Dict]) -> Optional[Dict]:
 
 
 def scope_uid(uid: Optional[str] = None) -> Optional[str]:
-    """The user a call is for: given explicitly, else the job's user (GTA6_USER_ID set by the server), else nobody (CLI / legacy)."""
-    return str(uid) if uid else (os.environ.get("GTA6_USER_ID") or None)
+    """The user a call is for: given explicitly, else the job's user (CLIPSTUDIO_USER_ID set by the server), else nobody (CLI / legacy)."""
+    return str(uid) if uid else (os.environ.get("CLIPSTUDIO_USER_ID") or None)
 
 
 def scope(uid: Optional[str] = None) -> Dict:

@@ -3,9 +3,10 @@
 Each member connects THEIR OWN channel through "Sign in with Google". Their refresh token is stored encrypted
 (Fernet, key in .env as TOKEN_ENC_KEY) in MongoDB collection `yt_accounts`, one account per member.
 
-Quota: Google gives a project ~10,000 units a day (resets at midnight Pacific time). An upload costs 1,600, a thumbnail or a
-publish 50. We count every call so uploads wait for the next day instead of failing. Raise YT_DAILY_UNITS in .env after Google
-approves a bigger quota.
+Quota (resets at midnight Pacific time): uploads (videos.insert) have their OWN allowance, 100 a day by default (YT_DAILY_UPLOADS),
+one unit each. Everything else (thumbnail, publish, channel read) comes from a separate pool of 10,000 units (YT_DAILY_UNITS),
+50 units for a thumbnail or a publish. We count every call so uploads wait for the next day instead of failing. Raise either
+number in .env after Google approves a bigger quota (check the Quotas page in Google Cloud Console for your real values).
 The base URLs can be overridden with environment variables (used by the automated tests).
 """
 import os
@@ -28,7 +29,7 @@ USERINFO_URL = os.environ.get("GOOGLE_USERINFO_URL", "https://openidconnect.goog
 API = os.environ.get("YT_API_BASE", "https://www.googleapis.com/youtube/v3")
 UPLOAD = os.environ.get("YT_UPLOAD_BASE", "https://www.googleapis.com/upload/youtube/v3")
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube", "openid", "email"]
-UNITS = {"upload": 1600, "thumbnail": 50, "update": 50, "list": 1}
+UNITS = {"thumbnail": 50, "update": 50, "list": 1}     # the shared pool; uploads are counted separately (daily_uploads)
 CHUNK = 8 * 1024 * 1024   # multiple of 256 KB, as the resumable protocol requires
 
 
@@ -82,6 +83,22 @@ def daily_units() -> int:
     return int(read_env().get("YT_DAILY_UNITS") or os.environ.get("YT_DAILY_UNITS") or 10000)
 
 
+def daily_uploads() -> int:
+    try:
+        return max(1, int(read_env().get("YT_DAILY_UPLOADS") or os.environ.get("YT_DAILY_UPLOADS") or 100))
+    except ValueError:
+        return 100
+
+
+def uploads_used() -> int:
+    d = YtQuota.objects(id=_pacific_day()).first()
+    return int(d.uploads or 0) if d else 0
+
+
+def uploads_left() -> int:
+    return max(0, daily_uploads() - uploads_used())
+
+
 def quota_used() -> int:
     d = YtQuota.objects(id=_pacific_day()).first()
     return int(d.units or 0) if d else 0
@@ -95,12 +112,16 @@ def quota_use(units: int) -> None:
     YtQuota.objects(id=_pacific_day()).update_one(upsert=True, inc__units=units, set_on_insert__t=now())
 
 
-def quota_exhausted_today() -> None:
-    YtQuota.objects(id=_pacific_day()).update_one(upsert=True, set__units=daily_units())
+def quota_exhausted_today(uploads: bool = False) -> None:
+    """Google said no: mark the upload allowance (uploads=True) or the shared pool as used up for today."""
+    if uploads:
+        YtQuota.objects(id=_pacific_day()).update_one(upsert=True, set__uploads=daily_uploads())
+    else:
+        YtQuota.objects(id=_pacific_day()).update_one(upsert=True, set__units=daily_units())
 
 
 def can_upload() -> bool:
-    return quota_left() >= UNITS["upload"] + UNITS["thumbnail"] + UNITS["update"]
+    return uploads_left() >= 1 and quota_left() >= UNITS["thumbnail"] + UNITS["update"]
 
 
 # ---------------------------------------------------------------- sign in with Google
@@ -185,6 +206,8 @@ def access_token(user_id) -> str:
     except YTError as e:
         if e.status in (400, 401):   # the member revoked access (or the token expired): they must connect again
             YtAccount.objects(id=a["_id"]).update(set__needs_reconnect=True)
+            from app.services import notification_service as notes
+            notes.notify(a["_id"], "youtube", "Reconnect your YouTube channel", "YouTube access was removed or expired, so uploads are paused. Connect your channel again.", "#/profile", "warn", key="ytreconnect")
             raise YTError("YouTube access was removed or expired. Connect your channel again (Settings -> YouTube).", e.status)
         raise
     YtAccount.objects(id=a["_id"]).update(set__access_token=t["access_token"], set__expires_at=time.time() + int(t.get("expires_in", 3600)) - 60,
@@ -200,7 +223,7 @@ def _raise(r: requests.Response, what: str) -> None:
     except Exception:
         pass
     if r.status_code == 403 and reason in ("quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"):
-        quota_exhausted_today()
+        quota_exhausted_today(uploads=what.startswith("upload"))
         raise YTError("YouTube's daily upload limit is used up. It will continue tomorrow.", 403, "quotaExceeded")
     if r.status_code == 403 and "thumbnail" in what:
         raise YTError("This channel is not allowed to set custom thumbnails yet. Verify it at youtube.com/verify.", 403, reason)
@@ -235,7 +258,7 @@ def upload_video(user_id, path: Path, title: str, description: str, tags: List[s
     if r.status_code != 200 or not r.headers.get("Location"):
         _raise(r, "upload start")
     session_url = r.headers["Location"]
-    quota_use(UNITS["upload"])
+    YtQuota.objects(id=_pacific_day()).update_one(upsert=True, inc__uploads=1, set_on_insert__t=now())
     sent, retries = 0, 0
     with open(path, "rb") as f:
         while True:

@@ -1,0 +1,263 @@
+{
+ "recipes": {
+  "fail": {
+   "text_color": "#FFFFFF",
+   "accent": "#E9BD25",
+   "styles": [
+    "sticker",
+    "burst",
+    "split",
+    "polaroid"
+   ],
+   "max_words": 3,
+   "sat_boost": 1.45,
+   "vignette": 0.05,
+   "type": "fail",
+   "source": "measured from 24 thumbnails",
+   "n": 24,
+   "text_pos": "middle",
+   "face_share": 0.08,
+   "face_size": 0.119,
+   "face_side": "left",
+   "text_share": 0.126,
+   "contrast": 64.2,
+   "sat_level": 95.6,
+   "accents": [
+    "#E9BD25",
+    "#4D79E0",
+    "#E2C112",
+    "#52A5E3"
+   ]
+  },
+  "funny": {
+   "text_color": "#FFFFFF",
+   "accent": "#4586D1",
+   "styles": [
+    "sticker",
+    "burst",
+    "split",
+    "polaroid"
+   ],
+   "max_words": 3,
+   "sat_boost": 1.48,
+   "vignette": 0.05,
+   "type": "funny",
+   "source": "measured from 21 thumbnails",
+   "n": 21,
+   "text_pos": "middle",
+   "face_share": 0.19,
+   "face_size": 0.038,
+   "face_side": "left",
+   "text_share": 0.103,
+   "contrast": 60.4,
+   "sat_level": 100.8,
+   "accents": [
+    "#4586D1",
+    "#4D79E0",
+    "#3AA0DC",
+    "#5176B5"
+   ]
+  },
+  "epic": {
+   "text_color": "#FFFFFF",
+   "accent": "#E9A728",
+   "styles": [
+    "classic",
+    "burst",
+    "sticker"
+   ],
+   "max_words": 3,
+   "sat_boost": 1.5,
+   "vignette": 0.18,
+   "type": "epic",
+   "source": "measured from 24 thumbnails",
+   "n": 24,
+   "text_pos": "top",
+   "face_share": 0.25,
+   "face_size": 0.062,
+   "face_side": "left",
+   "text_share": 0.097,
+   "contrast": 62.6,
+   "sat_level": 114.8,
+   "accents": [
+    "#E9A728",
+    "#A4714E",
+    "#4D5A90",
+    "#D87C1B"
+   ]
+  },
+  "rage": {
+   "text_color": "#FFFFFF",
+   "accent": "#66329B",
+   "styles": [
+    "sticker",
+    "burst",
+    "split",
+    "polaroid"
+   ],
+   "max_words": 3,
+   "sat_boost": 1.41,
+   "vignette": 0.05,
+   "type": "rage",
+   "source": "measured from 20 thumbnails",
+   "n": 20,
+   "text_pos": "middle",
+   "face_share": 0.35,
+   "face_size": 0.022,
+   "face_side": "left",
+   "text_share": 0.068,
+   "contrast": 61.7,
+   "sat_level": 89.1,
+   "accents": [
+    "#66329B",
+    "#746FEB",
+    "#AB654C",
+    "#79A3E8"
+   ]
+  },
+  "scary": {
+   "text_color": "#FFFFFF",
+   "accent": "#BF3E14",
+   "styles": [
+    "bottom",
+    "cinema",
+    "minimal"
+   ],
+   "max_words": 3,
+   "sat_boost": 1.4,
+   "vignette": 0.22,
+   "type": "scary",
+   "source": "measured from 21 thumbnails",
+   "n": 21,
+   "text_pos": "bottom",
+   "face_share": 0.62,
+   "face_size": 0.049,
+   "face_side": "left",
+   "text_share": 0.061,
+   "contrast": 65.7,
+   "sat_level": 88.8,
+   "accents": [
+    "#BF3E14",
+    "#111ABD",
+    "#B49842",
+    "#723E3B"
+   ]
+  },
+  "shock": {
+   "text_color": "#FFFFFF",
+   "accent": "#B22537",
+   "styles": [
+    "sticker",
+    "burst",
+    "split",
+    "polaroid"
+   ],
+   "max_words": 3,
+   "sat_boost": 1.44,
+   "vignette": 0.17,
+   "type": "shock",
+   "source": "measured from 23 thumbnails",
+   "n": 23,
+   "text_pos": "middle",
+   "face_share": 0.26,
+   "face_size": 0.029,
+   "face_side": "left",
+   "text_share": 0.063,
+   "contrast": 65.7,
+   "sat_level": 95.0,
+   "accents": [
+    "#B22537",
+    "#726540",
+    "#BA8B2B",
+    "#519DD7"
+   ]
+  },
+  "news": {
+   "text_color": "#FFFFFF",
+   "accent": "#684BB5",
+   "styles": [
+    "sticker",
+    "burst",
+    "split",
+    "polaroid"
+   ],
+   "max_words": 4,
+   "sat_boost": 1.41,
+   "vignette": 0.15,
+   "type": "news",
+   "source": "measured from 24 thumbnails",
+   "n": 24,
+   "text_pos": "middle",
+   "face_share": 0.33,
+   "face_size": 0.085,
+   "face_side": "center",
+   "text_share": 0.094,
+   "contrast": 60.9,
+   "sat_level": 89.4,
+   "accents": [
+    "#684BB5",
+    "#8C5745",
+    "#CC8C6C",
+    "#F2C109"
+   ]
+  },
+  "tutorial": {
+   "text_color": "#FFFFFF",
+   "accent": "#CD6DCC",
+   "styles": [
+    "sticker",
+    "burst",
+    "split",
+    "polaroid"
+   ],
+   "max_words": 4,
+   "sat_boost": 1.5,
+   "vignette": 0.1,
+   "type": "tutorial",
+   "source": "measured from 24 thumbnails",
+   "n": 24,
+   "text_pos": "middle",
+   "face_share": 0.25,
+   "face_size": 0.018,
+   "face_side": "center",
+   "text_share": 0.172,
+   "contrast": 75.1,
+   "sat_level": 110.7,
+   "accents": [
+    "#CD6DCC",
+    "#44824E",
+    "#B75CB9",
+    "#4E96FB"
+   ]
+  },
+  "reaction": {
+   "text_color": "#FFFFFF",
+   "accent": "#A46659",
+   "styles": [
+    "sticker",
+    "burst",
+    "split",
+    "polaroid"
+   ],
+   "max_words": 3,
+   "sat_boost": 1.5,
+   "vignette": 0.13,
+   "type": "reaction",
+   "source": "measured from 23 thumbnails",
+   "n": 23,
+   "text_pos": "middle",
+   "face_share": 0.7,
+   "face_size": 0.089,
+   "face_side": "left",
+   "text_share": 0.092,
+   "contrast": 70.2,
+   "sat_level": 107.2,
+   "accents": [
+    "#A46659",
+    "#D6956F",
+    "#703334",
+    "#EAB95B"
+   ]
+  }
+ }
+}

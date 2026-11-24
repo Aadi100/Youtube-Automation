@@ -85,7 +85,7 @@ def uploaded_email(video: Dict, approve_url: str, cfg: Optional[Dict] = None) ->
       <p style="color:#5d6879;font-size:13px">Before approving, open YouTube Studio → Content and check the video's
       <b>Checks</b> for copyright notices. Ignore this email to keep it Unlisted, or press Decline to reject it.<br>
       The Approve button works on the computer that runs Clip Studio.</p></div>"""
-    thumb = Path(video.get("thumbnail_path", "")) if video.get("thumbnail_path") else None
+    thumb = Path(video.get("thumbnail_path") or "") if video.get("thumbnail_path") else None
     return send_mail(f"✅ Ready to check: {title[:80]}", text, body, thumb, cfg)
 
 

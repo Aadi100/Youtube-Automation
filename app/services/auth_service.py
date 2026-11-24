@@ -122,6 +122,14 @@ def signup(email: str, name: str, password: str, ip: str, is_local: bool, setup_
     status = "active" if mode == "open" else "pending"
     u = create_user(email, name, password, role="member", status=status)
     try:
+        from app.services import notification_service as notes
+        if status == "pending":
+            notes.notify_owner("signup", f"{u.get('name') or u['email']} is waiting for approval", u["email"], "#/users", "info", key=f"signup-{u['_id']}")
+        else:
+            notes.notify(str(u["_id"]), "account", "Welcome to Clip Studio", "Connect your YouTube channel in Profile, then make your first video on the Create page.", "#/profile", "success")
+    except Exception:
+        pass
+    try:
         from app.services import token_service as tokens
         bonus = tokens.pricing()["signup_bonus"]
         if bonus > 0:
@@ -180,9 +188,13 @@ def set_status(user_id: str, status: str) -> None:
         raise ValueError("user not found")
     if u.role == "owner" and status != "active":
         raise ValueError("The owner account cannot be disabled.")
+    was = u.status
     User.objects(id=u.id).update(set__status=status)
     if status != "active":
         end_all_sessions(user_id)
+    elif was == "pending":
+        from app.services import notification_service as notes
+        notes.notify(str(u.id), "account", "Your account was approved", "Welcome! Connect your YouTube channel in Profile, then make your first video.", "#/profile", "success")
 
 
 def delete_user(user_id: str) -> None:
@@ -208,3 +220,5 @@ def change_password(user_id: str, old: str, new: str) -> None:
     if len(new or "") < 8:
         raise ValueError("The new password must be at least 8 characters.")
     User.objects(id=u.id).update(set__pw_hash=hash_password(new))
+    from app.services import notification_service as notes
+    notes.notify(str(u.id), "account", "Your password was changed", "If this was not you, contact the owner right away.", "#/profile", "warn")

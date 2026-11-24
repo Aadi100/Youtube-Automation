@@ -10,6 +10,7 @@ from app.controllers.job_controller import default_audio
 from app.models import Game, Job, Setting, System, User, oid
 from app.runtime import SCHED_CATCHUP_MIN, SCHED_DEFAULT, USER_ACTIVE_LIMIT, WORKER_ID
 from app.services import auth_service as auth
+from app.services import creator_service
 from app.services import token_service as tokens
 from app.services import youtube_service as youtube_api
 from app.services.queue_service import busy, enqueue
@@ -45,6 +46,9 @@ def get_schedule(uid=None) -> dict:
         if isinstance(doc.get(k), dict):
             s[k]["enabled"] = bool(doc[k].get("enabled", True))
             s[k]["times"] = _clean_times(doc[k].get("times", s[k]["times"]))
+            s[k]["creators"] = [str(i) for i in (doc[k].get("creators") or [])][:20]      # saved creators this schedule takes clips from, in turn
+    for k in ("shorts", "compilation"):
+        s[k].setdefault("creators", [])
     s["last"] = doc.get("last", {})
     return s
 
@@ -129,6 +133,8 @@ def scheduler() -> None:
                     if not Game.list_for(uid) or not any(g.get("enabled", True) for g in Game.list_for(uid)):
                         continue
                     if u.get("role") != "owner" and tokens.balance(uid) < tokens.cost(mode, params["source"]):
+                        from app.services import notification_service as notes
+                        notes.notify(uid, "schedule", "A scheduled video was skipped", "You do not have enough tokens for the next scheduled video. Ask the owner to add more.", "#/schedule", "warn", key="sched-lowtok")
                         continue   # not enough tokens: wait, the slot stays open for the catch-up window
                     if Job.total(user_id=uid, status__in=["queued", "running"]) >= USER_ACTIVE_LIMIT:
                         continue
@@ -136,6 +142,9 @@ def scheduler() -> None:
                                                    id=f"schedule:{uid}", fields={f"last.{kind}": time.time()})
                     if not claimed:   # another instance took this slot a moment ago
                         continue
+                    creator = creator_service.next_for_schedule(uid, kind, sched, u.get("role") == "owner")
+                    if creator:      # this slot takes its clips from the next saved creator instead of searching by game
+                        params["diy"] = {"creator": {"platform": creator["platform"], "name": creator["name"]}}
                     jid, err = enqueue(mode, params, "scheduled", uid)
                     print(f"[studio] scheduled {kind} for {u['email']}: {'job ' + jid if jid else err}")
         except Exception as e:

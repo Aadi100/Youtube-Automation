@@ -41,7 +41,7 @@ SECURITY_HEADERS = [
     ("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
                                 "media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
 ]
-PUBLIC = {("GET", "/"), ("GET", "/healthz"), ("GET", "/api/ui-version"), ("GET", "/api/auth/status"), ("POST", "/api/auth/login"),
+PUBLIC = {("GET", "/"), ("GET", "/app"), ("GET", "/healthz"), ("GET", "/api/ui-version"), ("GET", "/api/auth/status"), ("POST", "/api/auth/login"),
           ("POST", "/api/auth/signup"), ("POST", "/api/auth/logout")}
 PUBLIC_RE = [r"/approve/[\w-]{20,64}(/decline)?", r"/api/youtube/callback"]          # protected by their own one-time token
 INTERNAL_RE = [r"/run", r"/file", r"/api/schedule/claim/(shorts|compilation)", r"/api/videos/[0-9a-f]{24}/uploaded"]   # n8n on this machine

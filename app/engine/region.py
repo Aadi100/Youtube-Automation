@@ -1,4 +1,4 @@
-"""Audience-region gate: only creators from the allowed countries (CLIP_COUNTRIES, default Europe + US + Canada).
+"""Audience-region gate: only creators from the countries the person chose (Settings -> Creators & languages; the owner starts with All, a member with Europe + US + Canada).
 
 YouTube shows a channel's country on its About page, so for every YouTube stream/video we look it up (cached):
   country found + allowed      -> ok
@@ -12,13 +12,7 @@ from typing import Dict, Optional, Tuple
 
 import requests
 
-from app.config import CLIP_COUNTRIES
-
-NAMES = {"US": ["United States"], "CA": ["Canada"], "GB": ["United Kingdom"], "IE": ["Ireland"], "DE": ["Germany"], "FR": ["France"],
-         "ES": ["Spain"], "IT": ["Italy"], "NL": ["Netherlands"], "BE": ["Belgium"], "SE": ["Sweden"], "NO": ["Norway"],
-         "DK": ["Denmark"], "FI": ["Finland"], "PL": ["Poland"], "PT": ["Portugal"], "AT": ["Austria"], "CH": ["Switzerland"],
-         "CZ": ["Czechia", "Czech Republic"], "RO": ["Romania"], "GR": ["Greece"], "HU": ["Hungary"], "IS": ["Iceland"], "LU": ["Luxembourg"]}
-ALLOWED_NAMES = {n.lower() for code in CLIP_COUNTRIES for n in NAMES.get(code, [])}
+# the allowed countries are each person's own choice: see app/engine/audience.py
 # wording that clearly points to a region we do not target (used only when the channel lists no country)
 OFF_REGION = re.compile(r"\b(hindi|hinglish|india|indian|desi|urdu|pakistan\w*|bangla\w*|bengali|tamil|telugu|punjabi|marathi|"
                         r"malayalam|kannada|nepali|sinhala|filipino|tagalog|indonesia\w*|vietnam\w*|thai|arabic)\b", re.I)
@@ -83,9 +77,13 @@ def check_video(video_url: str, channel_url: Optional[str] = None, title: str = 
     except Exception as e:
         return True, f"channel lookup failed ({type(e).__name__}) - not blocked", name or None, channel_url
     curl = f"https://www.youtube.com/channel/{cid}" if cid else channel_url
+    from app.engine import audience
+    allowed = audience.country_names()                # this person's countries; None = every country
+    if allowed is None:
+        return True, "all countries allowed", name, curl
     country = channel_country(cid) if cid else None
     if country:
-        if country.lower() in ALLOWED_NAMES:
+        if country.lower() in allowed:
             return True, f"channel is in {country}", name, curl
         return False, f"channel is in {country}", name, curl
     if OFF_REGION.search(f"{title} {name or ''}"):

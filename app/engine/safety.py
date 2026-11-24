@@ -10,6 +10,7 @@ A clip is blocked if ANY layer flags it. If both reviews cannot run, the clip is
 the clip continues marked "partial" and stays Unlisted until you approve it.
 """
 import base64
+import hashlib
 import json
 import os
 import re
@@ -87,6 +88,8 @@ def review_locally(video: Path):
                 for d in _detector.detect(str(f)):
                     if d.get("class") in EXPOSED and float(d.get("score", 0)) > best:
                         best, label = float(d["score"]), str(d["class"]).replace("_", " ").lower()
+        from app.models import UsageEvent
+        UsageEvent.record("safety_local", provider="nudenet", task="safety", units=1)
         if best >= 0.60:
             return False, f"local detector: {label} ({best:.0%})"
         if best >= 0.40:
@@ -105,20 +108,39 @@ PROMPT = ("You are a strict content-safety reviewer for a YouTube Shorts channel
           'Reply with JSON only: {{"nudity": bool, "sexual_content": bool, "suggestive": bool, "sexual_language": bool, "reason": "max 12 words"}}')
 
 
+def _int_env(name: str, default: int, lo: int, hi: int) -> int:
+    try:
+        return max(lo, min(hi, int(os.environ.get(name) or default)))
+    except ValueError:
+        return default
+
+
 def review_with_gemini(video: Path, transcript: str = "") -> Tuple[Optional[bool], str]:
-    """(True/False, reason) or (None, why) when Gemini is unreachable / busy / has no key."""
+    """(True/False, reason) or (None, why) when Gemini is unreachable / busy / has no key.
+    Cost control: a few small frames (SAFETY_AI_FRAMES, default 6, at SAFETY_AI_WIDTH, default 384 px) instead of many large ones."""
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         return None, "no Gemini key"
     models = [m for m in (os.environ.get("GEMINI_MODEL") or "gemini-flash-latest", "gemini-flash-lite-latest") if m]
+    from app.engine import ai_saver
+    ckey = None
+    try:                                              # the same clip file (even from another member) is reviewed once
+        ckey = ai_saver.key_of("safety", ai_saver.fingerprint(Path(video)), hashlib.sha256((transcript or "")[:1200].encode()).hexdigest(), _int_env("SAFETY_AI_FRAMES", 6, 3, 12), ai_saver.media_resolution())
+        hit = ai_saver.cache_get("safety", ckey)
+        if hit:
+            return bool(hit[0]), hit[1]
+    except Exception:
+        ckey = None
     with tempfile.TemporaryDirectory() as td:
-        files = _frame_files(Path(video), Path(td), 8, 512)
+        files = _frame_files(Path(video), Path(td), _int_env("SAFETY_AI_FRAMES", 6, 3, 12), _int_env("SAFETY_AI_WIDTH", 384, 256, 768))
         frames = [base64.b64encode(f.read_bytes()).decode() for f in files]
     if not frames:
         return None, "could not read frames"
     tr = f" and its transcript: \"{transcript[:1200]}\"" if transcript.strip() else ""
     parts = [{"text": PROMPT.format(n=len(frames), tr=tr)}] + [{"inline_data": {"mime_type": "image/jpeg", "data": f}} for f in frames]
     body = {"contents": [{"parts": parts}], "generationConfig": {"responseMimeType": "application/json", "temperature": 0}}
+    if ai_saver.media_resolution():                   # the same answer for about a quarter of the tokens (measured: 6,628 -> 1,612 for 6 frames)
+        body["generationConfig"]["mediaResolution"] = ai_saver.media_resolution()
     last = ""
     for model in dict.fromkeys(models):
         for attempt in range(2):
@@ -126,12 +148,22 @@ def review_with_gemini(video: Path, transcript: str = "") -> Tuple[Optional[bool
                 r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                                   headers={"x-goog-api-key": key}, json=body, timeout=30)
                 if r.status_code == 200:
+                    from app.engine import gemini_util
+                    from app.models import UsageEvent
+                    tin, tout = gemini_util.usage_of(r.json())
+                    UsageEvent.record("llm", provider="gemini", task="safety", tokens_in=tin, tokens_out=tout)
+                    ai_saver.spend(tin + tout)
+                    if "mediaResolution" in body["generationConfig"]:
+                        ai_saver.saved("safety", "lowres", int(tin * ai_saver.LOW_RES_RATIO))
                     cand = r.json()["candidates"][0]
                     if cand.get("finishReason") == "SAFETY":   # the reviewer itself refused to look: treat as unsafe
                         return False, "blocked by the reviewer's own safety filter"
                     data = json.loads(cand["content"]["parts"][0]["text"])
                     bad = [k for k in ("nudity", "sexual_content", "suggestive", "sexual_language") if data.get(k)]
-                    return (False, f"{', '.join(bad)}: {str(data.get('reason', ''))[:80]}") if bad else (True, "clear")
+                    verdict = (False, f"{', '.join(bad)}: {str(data.get('reason', ''))[:80]}") if bad else (True, "clear")
+                    if ckey:
+                        ai_saver.cache_put("safety", ckey, list(verdict), tin + tout)
+                    return verdict
                 last = f"HTTP {r.status_code}"
             except Exception as e:
                 last = type(e).__name__
@@ -172,5 +204,20 @@ def check_clip(video: Path, title: str = "", channel: str = "", transcript: str 
 
 
 def check_final_video(video: Path, title: str = "", description: str = "") -> Tuple[bool, str]:
-    """Last gate on the finished video before it can be uploaded (same checks on the final frames and text)."""
-    return check_clip(video, title=title, channel="", transcript=description[:600])
+    """Last gate on the finished video before it can be uploaded.
+    The clips in it were already reviewed by Gemini, so by default the final video gets the free checks only (adult wording in the title
+    and description + the local nudity detector); Gemini looks again only if the local detector is unsure or cannot run.
+    SAFETY_FINAL_AI=on restores the full second Gemini review."""
+    if (os.environ.get("SAFETY_FINAL_AI") or "off").strip().lower() in ("on", "1", "yes", "true"):
+        return check_clip(video, title=title, channel="", transcript=description[:600])
+    if not enabled():
+        return True, "safe mode off"
+    why = text_flag(title, description)
+    if why:
+        return False, why
+    local, lwhy = review_locally(Path(video))
+    if local is False:
+        return False, lwhy
+    if local is True:
+        return True, "clear (the clips were reviewed before; local detector + text check on the final video)"
+    return check_clip(video, title=title, channel="", transcript=description[:600])   # unsure or detector unavailable: the full review decides

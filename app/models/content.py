@@ -33,19 +33,15 @@ class Game(Doc):
 
     @staticmethod
     def default_data() -> Dict:
-        """Used when MongoDB is unavailable (CLI runs) and to seed the first game."""
-        return {"id": "gta-6", "name": "GTA 6", "twitch_category": TWITCH_GAME_NAME,
-                "youtube_query": YOUTUBE_QUERY, "hashtags": ["GTA6", "GrandTheftAuto6"],
-                "thumb_label": "GTA 6", "enabled": True}
+        """A neutral fallback game for command-line runs that name no game. The studio itself works from the games each person adds on the Games tab."""
+        return {"id": "gaming", "name": "Gaming", "twitch_category": TWITCH_GAME_NAME,
+                "youtube_query": YOUTUBE_QUERY, "hashtags": ["Gaming"],
+                "thumb_label": "GAMING", "enabled": True}
 
     @classmethod
     def ensure_default(cls) -> None:
-        if cls.objects.count() == 0:
-            d = cls.default_data()
-            try:
-                cls(id=d.pop("id"), **d, created_at=now(), last_used_at=None).save(force_insert=True)
-            except NotUniqueError:   # web and worker boot together; the other one already seeded it
-                pass
+        """Nothing is made up for a new studio: the owner adds the games they cover on the Games tab (a run with no games says so in plain words)."""
+        return None
 
     @classmethod
     def list_for(cls, uid: Optional[str] = None) -> List[Dict]:
@@ -182,7 +178,9 @@ class Video(Doc):
         doc = {k: manifest[k] for k in ("kind", "title", "description", "tags", "video_path",
                                        "thumbnail_path", "audio_mode", "clip_ids")}
         doc.update({"game_id": manifest.get("game_id"), "game_name": manifest.get("game_name"),
-                    "credits": manifest.get("credits", [])})
+                    "credits": manifest.get("credits", []), "thumb_style": manifest.get("thumb_style"),
+                    "content_type": manifest.get("content_type"), "thumb_recipe": manifest.get("thumb_recipe"),
+                    "thumb_tier": manifest.get("thumb_tier")})
         doc.update({"status": "rendered", "privacy_status": manifest.get("privacy_status", "unlisted"),
                     "youtube_id": None, "twitch": {"status": "pending"},  # twitch is uploaded by hand
                     "created_at": now(), "job_id": job_id, "user_id": scope_uid(uid)})
@@ -273,3 +271,50 @@ class ChannelRegion(Doc):
     """Cached country of a YouTube channel (so creators outside the allowed regions are skipped)."""
     id = StringField(primary_key=True)
     meta = {"collection": "channel_regions"}
+
+
+# ---- the video editor ----------------------------------------------------
+class EditSource(Doc):
+    """A video a member opened in the editor: an upload, a downloaded part of a link, or one of their own finished videos."""
+    user_id = StringField()
+    title = StringField()
+    origin = StringField()                        # upload | link | video
+    path = StringField()
+    created_at = DateTimeField()
+    meta = {"collection": "edit_sources", "indexes": [("user_id", "-created_at")]}
+
+
+# ---- the clip finder -------------------------------------------------------
+class Scan(Doc):
+    """One search for good moments in a stream, replay or video: the candidates it found wait here for the member to choose."""
+    user_id = StringField()
+    title = StringField()
+    url = StringField()
+    kind = StringField()                          # vod | live
+    status = StringField(default="running")       # running | done | error
+    created_at = DateTimeField()
+    meta = {"collection": "scans", "indexes": [("user_id", "-created_at")]}
+
+
+# ---- clipping research ------------------------------------------------------
+class ResearchRun(Doc):
+    """One research question asked of Claude (with its web search): what it asked, what it found, what it cost."""
+    user_id = StringField()
+    scope = StringField()                         # world | game | creator | platform | marketplace
+    query = StringField()
+    status = StringField(default="running")       # running | done | error
+    created_at = DateTimeField()
+    meta = {"collection": "research_runs", "indexes": [("user_id", "-created_at")]}
+
+
+class ResearchLead(Doc):
+    """A creator or clipping programme found by a research run, with the proof: links and quotes. The member keeps a status and notes."""
+    user_id = StringField()
+    run_id = StringField()
+    key = StringField()                           # normalised creator / programme name + platform (no duplicates)
+    name = StringField()
+    allows = StringField()                        # yes | conditional | no | unknown
+    status = StringField(default="new")           # new | saved | contacted | approved | rejected
+    created_at = DateTimeField()
+    meta = {"collection": "research_leads", "indexes": [("user_id", "key"), ("user_id", "-created_at")]}
+

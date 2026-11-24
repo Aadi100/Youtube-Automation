@@ -4,12 +4,12 @@ from pathlib import Path
 
 # Base Paths
 BASE_DIR = Path(__file__).resolve().parent.parent      # the project folder (one above app/)
-_UID = os.environ.get("GTA6_USER_ID", "")   # set by the server for each job: every member's files live in their own folders
+_UID = os.environ.get("CLIPSTUDIO_USER_ID", "")   # set by the server for each job: every member's files live in their own folders
 INPUT_DIR = BASE_DIR / "inputs" / _UID if _UID else BASE_DIR / "inputs"
 OUTPUT_DIR = BASE_DIR / "outputs"
 SHORTS_OUTPUT_DIR = OUTPUT_DIR / "shorts" / _UID if _UID else OUTPUT_DIR / "shorts"
 COMPILATIONS_OUTPUT_DIR = OUTPUT_DIR / "compilations" / _UID if _UID else OUTPUT_DIR / "compilations"
-TEMP_DIR = BASE_DIR / "temp" / os.environ.get("GTA6_JOB_ID", "") if os.environ.get("GTA6_JOB_ID") else BASE_DIR / "temp"
+TEMP_DIR = BASE_DIR / "temp" / os.environ.get("CLIPSTUDIO_JOB_ID", "") if os.environ.get("CLIPSTUDIO_JOB_ID") else BASE_DIR / "temp"
 STATE_DIR = BASE_DIR / "state"
 MUSIC_DIR = BASE_DIR / "music"   # put royalty-free .mp3/.wav tracks here (YouTube Audio Library etc.)
 
@@ -25,12 +25,12 @@ except ImportError:
 
 TWITCH_CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET", "")
-TWITCH_GAME_NAME = os.environ.get("TWITCH_GAME_NAME") or "Grand Theft Auto VI"
+TWITCH_GAME_NAME = os.environ.get("TWITCH_GAME_NAME") or ""      # only the fallback game of a command-line run; real games live on the Games tab
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
-YOUTUBE_QUERY = os.environ.get("YOUTUBE_QUERY") or "GTA 6 gameplay stream highlights"
+YOUTUBE_QUERY = os.environ.get("YOUTUBE_QUERY") or "gaming funny moments highlights"
 CONTACT_EMAIL =os.environ.get("CONTACT_EMAIL", "")
 MONGODB_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017")
-MONGODB_DB = os.environ.get("MONGODB_DB", "gta6_studio")
+MONGODB_DB = os.environ.get("MONGODB_DB", "clipstudio")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL") or "gemini-flash-latest"
 TTS_VOICE = os.environ.get("TTS_VOICE") or "en-US-GuyNeural"
 # audience region: only clips from creators in these countries / broadcasting in these languages (no Asia)

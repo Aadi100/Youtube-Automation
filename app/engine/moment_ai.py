@@ -201,16 +201,25 @@ def pick_windows(url: str, duration: float, game_name: str, n: int = 4) -> List[
     if _spent > RUN_BUDGET_S:
         _log("analysis time budget for this run is used up - skipping the AI pick")
         return []
+    from app.engine import ai_saver
+    ckey = ai_saver.key_of("moments", re.sub(r"[?&](si|t|feature)=[^&]*", "", url), int(duration // 30), n, clipcfg.criteria_text())
+    hit = ai_saver.cache_get("moments", ckey)
+    if hit is not None:
+        _log(f"moments of this video were found before: reusing them ({len(hit)})")
+        return hit
     t0 = time.time()
     segs = fetch_captions(url)
     if not segs:
         _spent += time.time() - t0
         return []
+    before_tokens = ai_saver.spent()
     best = rank_transcript(segs, duration, n, game_name)
     _spent += time.time() - t0
     for m in best:
         m["start"], m["end"] = round(m["start"], 1), round(min(m["end"], duration), 1)
         _log(f"moment {_mmss(m['start'])}-{_mmss(m['end'])} score {m['score']}: {m['hook']}")
+    if best:
+        ai_saver.cache_put("moments", ckey, best, max(1500, ai_saver.spent() - before_tokens))
     return best
 
 

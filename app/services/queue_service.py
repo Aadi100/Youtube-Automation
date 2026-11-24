@@ -8,8 +8,9 @@ import threading
 import time
 
 from app.config import BASE_DIR, OUTPUT_DIR
-from app.models import Job, User, UserPrefs, now, oid
+from app.models import Video, Job, User, UserPrefs, now, oid
 from app.runtime import KEEP_LOG, MAX_JOBS, RUNNING, SETTINGS, USER_ACTIVE_LIMIT, WAKE, WORKER_ID
+from app.services import notification_service as notes
 from app.services import notify_service as notify
 from app.services import storage_service as storage
 from app.services import token_service as tokens
@@ -60,13 +61,46 @@ def run_job(mode: str, params: dict, source: str, job_id: str, uid: str = None) 
     prefs = UserPrefs.of(uid)
     if not params.get("voice") and prefs.get("tts_voice"):
         cmd += ["--voice", prefs["tts_voice"]]
+    if params.get("video_id"):             # "make it again with different audio": which video
+        cmd += ["--video-id", str(params["video_id"])]
+    diy = params.get("diy") or {}          # the member's do-it-yourself choices (already checked against the owner's switches)
+    if diy.get("own_url"):
+        cmd += ["--url", diy["own_url"], "--start", str(float(diy["own_start"])), "--end", str(float(diy["own_end"]))]
+    if diy.get("creator"):                 # only clips from this creator (Twitch name or YouTube channel)
+        cmd += ["--creator", str(diy["creator"]["name"]), "--creator-platform", str(diy["creator"]["platform"])]
+    diy_env = {}
+    if diy.get("own_file"):                # a moment the member chose in the clip finder (the file is made by the server, never sent by the browser)
+        cmd += ["--clip-file", str(diy["own_file"])]
+        diy_env["CLIP_META"] = json.dumps(diy.get("own_meta") or {})
+    if params.get("want"):                  # what this video should be about; the run's AI prompts and search follow it (see engine/clipcfg.py)
+        from app.engine import clipcfg
+        w = clipcfg.clean_want(params["want"])
+        if w:
+            diy_env["CLIP_WANT"] = json.dumps(w)
+    if diy.get("ai_text") in ("budget", "balanced", "quality"):
+        diy_env["LLM_SPLIT"] = {"budget": "deepseek", "balanced": "balanced", "quality": "gemini"}[diy["ai_text"]]
+    elif diy.get("ai_text") == "off":
+        diy_env["LLM_DISABLED"] = "1"
+    for key, var in (("own_title", "DIY_TITLE"), ("own_description", "DIY_DESCRIPTION"), ("own_tags", "DIY_TAGS"), ("own_commentary", "DIY_COMMENTARY")):
+        if diy.get(key):
+            diy_env[var] = str(diy[key])
+    if diy.get("thumbnail") == "frame":
+        diy_env["AI_THUMBNAILS"] = "off"
+    if params.get("thumb_pictures") in (1, 3):
+        diy_env["THUMB_PICTURES"] = str(params["thumb_pictures"])
+    try:                                    # the thumbnail level, never above what the member may use right now (the owner may have changed the rules since they chose)
+        from app.services import thumbnail_service
+        u = User.find_one(id=oid(str(uid))) if uid else None
+        diy_env["THUMB_TIER"] = thumbnail_service.effective_tier(params.get("thumb_tier"), uid, bool(u and u.get("role") == "owner") or not uid) if uid else "free"
+    except Exception:
+        diy_env["THUMB_TIER"] = "free"
     # child must re-read .env itself (dotenv won't override variables inherited from us)
     env = {k: v for k, v in os.environ.items() if k not in SETTINGS}
     manifest = OUTPUT_DIR / "runs" / f"{job_id}.json"
     manifest.parent.mkdir(parents=True, exist_ok=True)
-    env.update(GTA6_JOB_ID=job_id, GTA6_USER_ID=str(uid or ""), GTA6_MANIFEST=str(manifest), PYTHONIOENCODING="utf-8")
+    env.update(CLIPSTUDIO_JOB_ID=job_id, CLIPSTUDIO_USER_ID=str(uid or ""), CLIPSTUDIO_MANIFEST=str(manifest), PYTHONIOENCODING="utf-8", **diy_env)
     if not uid:
-        env.pop("GTA6_USER_ID", None)
+        env.pop("CLIPSTUDIO_USER_ID", None)
     log, last_flush = [], 0.0
     stop = threading.Event()
     try:
@@ -146,16 +180,42 @@ def _pick_next():
     return None
 
 
+def _notify_job(j: dict, done: dict) -> None:
+    """Tell the member in the bell that their video is ready, or why it could not be made."""
+    try:
+        uid = j.get("user_id")
+        if done.get("status") == "done" and done.get("video_id"):
+            v = Video.find_one(id=oid(str(done["video_id"]))) or {}
+            holding = v.get("upload_status") == "hold"
+            notes.notify(uid, "video_ready", "Your video is ready", f"{v.get('title') or 'A new video'}" + (" is waiting for you to check it." if holding else " is being uploaded to YouTube as Unlisted."),
+                         "#/videos", "success")
+        elif done.get("status") == "failed":
+            from app.views.progress import friendly_error
+            notes.notify(uid, "video_failed", "A video could not be made", friendly_error(done.get("error")) or "Something went wrong. Nothing was charged.", "#/create", "error")
+    except Exception as e:
+        print(f"[studio] could not notify: {e}")
+
+
 def _execute(j: dict) -> None:
     jid = str(j["_id"])
     try:
         run_job(j["mode"], j["params"], j.get("source", "dashboard"), jid, uid=j.get("user_id"))
         done = Job.find_one(id=j["_id"]) or {}
-        # runs started from the dashboard or by a member's schedule upload by themselves (the owner's n8n runs are uploaded by n8n)
+        if done.get("status") == "done":
+            tokens.settle_job(jid)      # the member pays exactly what the video used; the unused part of the reserve goes back
+        else:
+            tokens.refund_job(jid)      # failed or cancelled: nothing is charged
+        # runs started from the dashboard or by a member's schedule upload by themselves (the owner's n8n runs are uploaded by n8n),
+        # unless the member asked to check the video first (then they choose the audio and upload it themselves)
         if done.get("status") == "done" and done.get("video_id") and j.get("source") in ("dashboard", "scheduled"):
-            auto_upload(str(done["video_id"]))
-        if done.get("status") != "done":
-            tokens.refund_job(jid)
+            after = (j.get("params") or {}).get("after") or ("hold" if UserPrefs.of(j.get("user_id")).get("hold_uploads") else "auto")
+            if after == "hold":
+                Video.update_where(id=oid(str(done["video_id"])), fields={"upload_status": "hold"})
+            else:
+                auto_upload(str(done["video_id"]))
+        elif done.get("status") == "done" and done.get("video_id") and j.get("source") not in ("n8n", "remix"):
+            Video.update_where(id=oid(str(done["video_id"])), fields={"upload_status": "hold"})   # a test or command-line run: never uploaded by itself
+        _notify_job(j, done)
     except Exception as e:
         print(f"[studio] job {jid} crashed: {e}")
     finally:

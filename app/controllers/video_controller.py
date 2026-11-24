@@ -9,10 +9,12 @@ from pathlib import Path
 from flask import Blueprint
 from mongoengine import Q
 
+from app.services import diy_service
 from app.http import register
 from app.models import Clip, Video, now, oid
 from app.runtime import STATUSES, TWITCH_STATUSES
-from app.services.upload_service import _notify_uploaded, approve_video, decline_video, push_thumbnail
+from app.runtime import UPLOAD_WAKE
+from app.services.upload_service import _direct, _notify_uploaded, approve_video, auto_upload, decline_video, push_thumbnail
 from app.utils.paths import inside_outputs
 from app.views.serializers import _vid
 
@@ -34,14 +36,14 @@ def h_videos(h):
     elif tw in TWITCH_STATUSES:
         cond = Q(__raw__={"twitch.status": tw})
     docs = Video.find_all(cond, order=("-created_at",), limit=200, **flt)
-    h.send_json(200, [_vid(x) for x in docs])
+    h.send_json(200, [_vid(x, h.is_owner()) for x in docs])
 
 
 def h_video(h, vid):
     doc = _video_for(h, vid)
     if not doc:
         return h.send_json(404, {"error": "not found"})
-    h.send_json(200, _vid(doc))
+    h.send_json(200, _vid(doc, h.is_owner()))
 
 
 def h_video_twitch(h, vid):
@@ -70,7 +72,7 @@ def h_video_reveal(h, vid):
     if not doc:
         return h.send_json(404, {"error": "not found"})
     try:
-        p = inside_outputs(doc.get("video_path", ""))
+        p = inside_outputs(doc.get("video_path") or "")
     except ValueError:
         return h.send_json(403, {"error": "path outside outputs/"})
     if not p.is_file():
@@ -132,7 +134,7 @@ def h_video_thumbnail(h, vid):
     doc = _video_for(h, vid)
     if not doc:
         return h.send_json(404, {"error": "not found"})
-    vp = inside_outputs(doc.get("video_path", ""))
+    vp = inside_outputs(doc.get("video_path") or "")
     if not vp or not Path(vp).is_file():
         return h.send_json(404, {"error": "The video file is missing."})
     meta = {}
@@ -142,7 +144,7 @@ def h_video_thumbnail(h, vid):
         pass
     from app.engine import thumbnail_generator
     mode = "16:9" if doc.get("kind") == "compilation" else "9:16"
-    out = inside_outputs(doc.get("thumbnail_path", "")) if doc.get("thumbnail_path") else None
+    out = inside_outputs(doc.get("thumbnail_path") or "") if doc.get("thumbnail_path") else None
     try:
         src = Path(vp)
         try:
@@ -158,13 +160,104 @@ def h_video_thumbnail(h, vid):
             output_path=Path(out) if out else None, game_name=doc.get("game_name"))
     except Exception as e:
         return h.send_json(500, {"error": f"Could not make the thumbnail: {e}"})
-    Video.update_where(id=doc["_id"], fields={"thumbnail_path": str(p)})
+    Video.update_where(id=doc["_id"], fields={"thumbnail_path": str(p), "thumb_style": thumbnail_generator.LAST.get("style")})
     doc = Video.find_one(id=doc["_id"])
     msg = "New thumbnail ready."
     if doc.get("youtube_id"):
         ok, why = push_thumbnail(doc)
         msg += " " + ("It is now on YouTube too." if ok else f"(Not updated on YouTube: {why})")
     h.send_json(200, {"ok": True, "message": msg})
+
+
+def h_video_upload(h, vid):
+    """Upload a video that was held for checking, as Unlisted (so it can be checked on YouTube) or straight as Public."""
+    doc = _video_for(h, vid)
+    if not doc:
+        return h.send_json(404, {"error": "not found"})
+    if doc.get("youtube_id") or doc.get("status") != "rendered":
+        return h.send_json(409, {"error": "This video is already on YouTube or was declined."})
+    if h.body_json().get("privacy") == "public":
+        ok, msg = approve_video(doc)
+    else:
+        Video.update_where(id=doc["_id"], unset=("upload_error",), fields={"upload_status": "queued", "upload_privacy": "unlisted"} if _direct(doc) else {"upload_status": "needs_youtube"})
+        if _direct(doc):
+            UPLOAD_WAKE.set()
+            ok, msg = True, "Queued: it uploads as Unlisted as soon as a YouTube upload slot is free (usually within a minute)."
+        else:
+            auto_upload(str(doc["_id"]))
+            ok, msg = True, "Sent."
+    h.send_json(200 if ok else 502, {"ok": ok, "message": msg} if ok else {"error": msg})
+
+
+def h_video_audio(h, vid):
+    """Make a video that is not on YouTube yet again with different audio: AI commentary + music, the original audio, or the original under music."""
+    from app.models import Clip, Job
+    from app.services.queue_service import enqueue
+    doc = _video_for(h, vid)
+    if not doc:
+        return h.send_json(404, {"error": "not found"})
+    d = h.body_json()
+    mode = str(d.get("audio_mode") or "")
+    if mode not in ("replace", "bed", "original"):
+        raise ValueError("Choose an audio mode: replace, bed or original.")
+    if doc.get("youtube_id") or doc.get("status") != "rendered" or doc.get("upload_status") in ("queued", "uploading", "done"):
+        return h.send_json(409, {"error": "This video is already on YouTube (or on its way), so its audio can no longer be changed."})
+    if Job.total(mode="remix", status__in=["queued", "running"], video_id=str(doc["_id"])):
+        return h.send_json(409, {"error": "This video is already being remade."})
+    clips = [Clip.find_one(id=cid) for cid in (doc.get("clip_ids") or [])]
+    if not clips or any(not c or not c.get("path") or not Path(c["path"]).is_file() for c in clips):
+        return h.send_json(409, {"error": "The original clip files were already cleaned up, so the audio cannot be changed. Make a new video instead."})
+    params = {"audio_mode": mode, "video_id": str(doc["_id"]), "game_id": "auto"}
+    if str(d.get("own_commentary") or "").strip() and mode == "replace" and doc.get("kind") == "short":
+        from app.services import diy_service
+        params["diy"] = diy_service.clean_options({"own_commentary": d["own_commentary"]}, "auto-short", "replace", h.is_owner())
+    jid, err = enqueue("remix", params, "remix", h.uid)
+    if jid is None:
+        return h.send_json(429, {"error": err})
+    Job.update_fields(jid, video_id=str(doc["_id"]))
+    h.send_json(200, {"job_id": jid, "message": "Remaking the video with the new audio. This takes a few minutes."})
+
+
+def h_video_my_thumbnail(h, vid):
+    """The member uploads their own thumbnail (free: no AI, no tokens). Cropped to 1280x720 and kept under YouTube's 2 MB limit."""
+    import io
+
+    from PIL import Image
+    doc = _video_for(h, vid)
+    if not doc:
+        return h.send_json(404, {"error": "not found"})
+    if not h.is_owner() and not diy_service.flags()["own_thumbnail"]:
+        return h.send_json(403, {"error": "The owner has switched off uploading your own thumbnail."})
+    n = int(h.headers.get("Content-Length") or 0)
+    if n <= 0 or n > 6_000_000:
+        raise ValueError("Choose an image up to 6 MB (JPG or PNG).")
+    try:
+        im = Image.open(io.BytesIO(h.rfile.read(n)))
+        im.load()
+    except Exception:
+        raise ValueError("That file is not an image. Use a JPG or PNG.")
+    im = im.convert("RGB")
+    w, hh = im.size
+    want = 1280 / 720
+    if w / hh > want:      # too wide: crop the sides
+        nw = int(hh * want)
+        im = im.crop(((w - nw) // 2, 0, (w - nw) // 2 + nw, hh))
+    else:                  # too tall: crop top and bottom
+        nh = int(w / want)
+        im = im.crop((0, (hh - nh) // 2, w, (hh - nh) // 2 + nh))
+    im = im.resize((1280, 720))
+    base = Path(doc.get("video_path") or "")
+    target = inside_outputs(str(base.with_name(base.stem + "_mythumb.jpg")))
+    for q in (90, 82, 74, 66):
+        im.save(target, "JPEG", quality=q)
+        if target.stat().st_size <= 1_900_000:
+            break
+    Video.update_where(id=doc["_id"], fields={"thumbnail_path": str(target), "thumbnail_own": True})
+    msg = "Your thumbnail is saved."
+    if doc.get("youtube_id"):
+        ok, why = push_thumbnail(Video.find_one(id=doc["_id"]))
+        msg += " It is on YouTube now." if ok else f" (YouTube: {why})"
+    h.send_json(200, {"message": msg})
 
 
 def h_video_yt_thumbnail(h, vid):
@@ -237,6 +330,9 @@ ROUTES = [
     (r"/api/videos/([0-9a-f]{24})/decline", "POST", h_video_decline),
     (r"/api/videos/([0-9a-f]{24})/thumbnail", "POST", h_video_thumbnail),
     (r"/api/videos/([0-9a-f]{24})/yt-thumbnail", "POST", h_video_yt_thumbnail),
+    (r"/api/videos/([0-9a-f]{24})/my-thumbnail", "POST", h_video_my_thumbnail),
+    (r"/api/videos/([0-9a-f]{24})/upload", "POST", h_video_upload),
+    (r"/api/videos/([0-9a-f]{24})/audio", "POST", h_video_audio),
     (r"/api/videos/([0-9a-f]{24})/twitch", "POST", h_video_twitch),
     (r"/api/videos/([0-9a-f]{24})/reveal", "POST", h_video_reveal),
     (r"/media/([0-9a-f]{24})/(video|thumb)", "GET", h_media),

@@ -21,4 +21,4 @@ def main() -> None:
     from app import create_app
     print(f"Studio dashboard: http://localhost:{PORT}")
     serve(create_app(), host=HOST, port=PORT, threads=int(os.environ.get("WEB_THREADS") or 48), ident="Studio",
-          clear_untrusted_proxy_headers=False, channel_timeout=300)
+          clear_untrusted_proxy_headers=False, channel_timeout=300, max_request_body_size=2 * 1024 ** 3 + (1 << 20))

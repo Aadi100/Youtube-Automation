@@ -70,7 +70,8 @@ def generate_seo_metadata(
         detail = (detail + "\nThe clips, in order:\n" + chapters_text)[:1400]
 
     title = tags = short_hook = thumb_headline = about = question = thumb_scene = None
-    if api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("DEEPSEEK_API_KEY"):
+    own_title = (os.environ.get("DIY_TITLE") or "").strip()      # the member wrote their own: no AI call, no tokens
+    if not own_title and (api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("DEEPSEEK_API_KEY")):
         try:
             from app.engine import llm
             n_words = "35-60" if video_type == "short" else "60-100"
@@ -113,6 +114,13 @@ Return ONLY a JSON object with the keys: titles (array of 5 strings), best (inte
             thumb_headline, thumb_scene = data.get("thumb_headline"), data.get("thumb_scene")
         except Exception as e:
             print(f"[AI Metadata] AI call failed ({e}). Using templates.")
+
+    if own_title:
+        title = own_title[:90]
+        about = (os.environ.get("DIY_DESCRIPTION") or "").strip()[:1500] or None
+        tags = [t.strip().lstrip("#") for t in (os.environ.get("DIY_TAGS") or "").split(",") if t.strip()][:30] or None
+        words = [w for w in own_title.replace("#Shorts", "").split() if w.isalnum()][:3]
+        thumb_headline = (os.environ.get("DIY_THUMB_TEXT") or " ".join(words)).upper()[:20] or None
 
     # Fallback templates (game name filled in)
     if not title:

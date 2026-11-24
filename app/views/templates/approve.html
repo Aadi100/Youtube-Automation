@@ -5,11 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Approve video</title>
 <style>
-body{margin:0;background:#0e1117;color:#e6e9ef;font:16px/1.5 system-ui,Segoe UI,sans-serif;display:grid;place-items:center;min-height:100vh;padding:16px}
-.c{background:#161b24;border:1px solid #2a3342;border-radius:12px;padding:26px;max-width:520px;width:100%}
-h1{font-size:20px;margin:0 0 6px}.m{color:#8b95a7;margin:0 0 16px}a{color:#00e5ff}
-button{font:inherit;border:0;border-radius:8px;padding:12px 22px;cursor:pointer;font-weight:600;margin:8px 8px 0 0}
-.p{background:#ff3d81;color:#fff}.s{background:#2a3342;color:#e6e9ef}#r{margin-top:14px}
+:root{--bg:#0c0806;--panel:#16100c;--panel3:#2b1f16;--line:#34251a;--text:#fbf1e8;--muted:#b39b89;--accent:#ff7a18;--accent2:#ffb15c;--onaccent:#1a0c02;--glow:rgba(255,122,24,.2)}
+@media (prefers-color-scheme:light){:root{--bg:#fbf5ef;--panel:#fff;--panel3:#efe2d4;--line:#eadccb;--text:#2a1a0f;--muted:#7d6652;--accent2:#b45309;--glow:rgba(255,122,24,.16)}}
+body{margin:0;background-color:var(--bg);background-image:radial-gradient(900px 520px at 80% -10%,var(--glow),transparent 62%);color:var(--text);font:16px/1.55 "Inter","Segoe UI",system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;padding:16px;-webkit-font-smoothing:antialiased}
+.c{background:linear-gradient(180deg,rgba(255,255,255,.04),transparent 60%),var(--panel);border:1px solid var(--line);border-radius:22px;padding:30px;max-width:520px;width:100%;box-shadow:0 30px 80px -26px rgba(255,106,0,.45),0 0 0 1px rgba(255,122,24,.18)}
+h1{font-size:26px;font-weight:800;letter-spacing:-.8px;margin:0 0 6px}.m{color:var(--muted);margin:0 0 16px}a{color:var(--accent2)}
+button{font:inherit;border:0;border-radius:99px;padding:12px 24px;cursor:pointer;font-weight:700;margin:8px 8px 0 0;transition:transform .1s,box-shadow .2s}
+button:active{transform:translateY(1px)}
+.p{background:linear-gradient(135deg,#ffb04a,#ff7a18 55%,#ff4d1a);color:var(--onaccent);box-shadow:0 10px 28px -8px rgba(255,106,0,.75),inset 0 1px 0 rgba(255,255,255,.4)}
+.s{background:var(--panel3);color:var(--text)}button:disabled{opacity:.55;cursor:not-allowed}#r{margin-top:14px}
 </style>
 </head>
 <body>

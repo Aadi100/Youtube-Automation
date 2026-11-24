@@ -10,6 +10,8 @@ import requests
 from mongoengine import Q
 
 from app.models import User, UserPrefs, Video, clean, now, oid
+from app.services import notification_service as notes
+from app.services import token_service as tokens
 from app.runtime import N8N_PUBLISH_URL, N8N_THUMB_URL, N8N_UPLOAD_URL, UPLOAD_WAKE
 from app.services import auth_service as auth
 from app.services import notify_service as notify
@@ -24,22 +26,45 @@ def _next_upload():
     cand = Video.find_all(Q(upload_status="queued") & (Q(retry_at__exists=False) | Q(retry_at__lte=time.time())), order=("created_at",), limit=300)
     if not cand:
         return None
-    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    today = Counter(v.get("user_id") for v in Video.find_all(uploaded_at__gte=start, only=("user_id",)))
+    start = tokens.day_start()
+    today = Counter(v.get("user_id") for v in Video.find_all(Q(uploaded_at__gte=start) | Q(upload_status="uploading"), only=("user_id",)))
     cand.sort(key=lambda v: (today.get(v.get("user_id"), 0), v["created_at"]))   # members with fewer uploads today go first
+    users = {str(u["_id"]): u for u in User.find_all(id__in=[oid(x) for x in {v.get("user_id") for v in cand if v.get("user_id")}])}
     for v in cand:
-        if Video.update_where(id=v["_id"], upload_status="queued", fields={"upload_status": "uploading"}):
+        uid = v.get("user_id")
+        lim = tokens.daily_limit(users.get(uid)) if uid else None
+        if lim is not None and today.get(uid, 0) >= lim:     # this member's uploads for today are used up: it goes out tomorrow
+            Video.update_where(id=v["_id"], fields={"upload_wait": f"Daily upload limit reached ({lim} a day): it uploads tomorrow"})
+            continue
+        if Video.update_where(id=v["_id"], upload_status="queued", fields={"upload_status": "uploading", "upload_started": time.time()}, unset=("upload_wait",)):
             return v
     return None
 
 
+def requeue_stuck_uploads(max_age: int = 1800) -> int:
+    """An upload left 'uploading' by a server that stopped goes back in the queue (its fee is returned; it is charged again when it retries)."""
+    n = 0
+    for v in Video.find_all(Q(upload_status="uploading") & (Q(upload_started__lt=time.time() - max_age) | Q(upload_started__exists=False))):
+        tokens.refund_upload(v["_id"])
+        if Video.update_where(id=v["_id"], upload_status="uploading", fields={"upload_status": "queued"}):
+            n += 1
+    if n:
+        UPLOAD_WAKE.set()
+    return n
+
+
 def _do_upload(d: dict) -> None:
     privacy = d.get("upload_privacy", "unlisted")
+    fee, err = tokens.charge_upload(d)      # the upload fee is taken first and returned if the upload does not finish
+    if err:
+        Video.update_where(id=d["_id"], fields={"upload_status": "queued", "retry_at": time.time() + 600, "upload_wait": err})
+        return
     try:
         if not _direct(d):
             raise youtube_api.YTError("Connect your YouTube channel (Settings -> YouTube) and the upload continues automatically.", 401)
         yt = _direct_upload(d, privacy)
     except youtube_api.YTError as e:
+        tokens.refund_upload(d["_id"])
         if e.reason == "quotaExceeded":   # wait for tomorrow's allowance
             Video.update_where(id=d["_id"], fields={"upload_status": "queued"})
             return
@@ -49,12 +74,19 @@ def _do_upload(d: dict) -> None:
         else:
             Video.update_where(id=d["_id"], fields={"upload_status": "error", "upload_error": str(e)[:300]})
             print(f"[studio] upload failed for {d['_id']}: {e}")
+            if e.status in (401, 403):
+                notes.notify(d.get("user_id"), "youtube", "Reconnect your YouTube channel", "An upload failed because YouTube did not accept the saved sign-in. Connect your channel again.", "#/profile", "warn", key="ytreconnect")
+            else:
+                notes.notify(d.get("user_id"), "upload_problem", "An upload failed", f"{d.get('title') or 'A video'} could not be uploaded: {str(e)[:160]}", "#/videos", "error", key=f"uperr-{d['_id']}")
         return
     except Exception as e:
+        tokens.refund_upload(d["_id"])
         Video.update_where(id=d["_id"], fields={"upload_status": "error", "upload_error": f"{type(e).__name__}: {str(e)[:200]}"})
         return
     doc = Video.find_one(id=d["_id"])
     _record_uploaded(doc, yt, privacy)
+    tokens.record_upload(doc, fee)
+    notes.notify(doc.get("user_id"), "upload_done", "Uploaded to YouTube", f"{doc.get('title') or 'Your video'} is on your channel as {privacy.title()}.", "#/videos", "success")
     print(f"[studio] uploaded {d['_id']} -> https://youtu.be/{yt} ({privacy})")
     try:
         push_thumbnail(Video.find_one(id=d["_id"]))
@@ -122,7 +154,7 @@ def _record_uploaded(doc: dict, yt: str, privacy: str) -> None:
 
 def _direct_upload(doc: dict, privacy: str) -> str:
     """Upload the video file to the member's channel. Raises youtube_api.YTError."""
-    vp = inside_outputs(doc.get("video_path", ""))
+    vp = inside_outputs(doc.get("video_path") or "")
     if not vp or not Path(vp).is_file():
         raise youtube_api.YTError("The video file is missing, so it cannot be uploaded.")
     return youtube_api.upload_video(doc["user_id"], Path(vp), doc.get("title", ""), doc.get("description", ""), doc.get("tags") or [], privacy)
@@ -164,7 +196,7 @@ def push_thumbnail(doc: dict) -> tuple:
         return False, "Connect your own YouTube channel first."
     if not re.fullmatch(r"[\w-]{11}", yt):
         return False, "not on YouTube yet"
-    tp = inside_outputs(doc.get("thumbnail_path", "")) if doc.get("thumbnail_path") else None
+    tp = inside_outputs(doc.get("thumbnail_path") or "") if doc.get("thumbnail_path") else None
     if not tp or not Path(tp).is_file():
         return False, "no thumbnail file"
     if Path(tp).stat().st_size > 2_000_000:   # YouTube's limit is 2 MB
@@ -215,10 +247,10 @@ def upload_and_publish(doc: dict, privacy: str = "public") -> tuple:
         return True, f"Uploaded and published: https://youtu.be/{yt}" if privacy == "public" else f"Uploaded as Unlisted: https://youtu.be/{yt}"
     if not _owners_video(doc):
         return False, "Connect your own YouTube channel first (Settings -> YouTube)."
-    vp = inside_outputs(doc.get("video_path", ""))
+    vp = inside_outputs(doc.get("video_path") or "")
     if not vp or not Path(vp).is_file():
         return False, "The video file is missing, so it cannot be uploaded."
-    tp = inside_outputs(doc.get("thumbnail_path", "")) if doc.get("thumbnail_path") else None
+    tp = inside_outputs(doc.get("thumbnail_path") or "") if doc.get("thumbnail_path") else None
     body = {"video_id": str(doc["_id"]), "title": doc.get("title", "")[:100], "description": doc.get("description", ""),
             "tags": doc.get("tags") or [], "kind": doc.get("kind", "short"), "privacy": privacy,
             "video_path": str(vp), "thumbnail_path": str(tp) if tp and Path(tp).is_file() else ""}
@@ -256,6 +288,7 @@ def auto_upload(vid: str) -> None:
             return
         if not _owners_video(doc):
             Video.update_where(id=doc["_id"], fields={"upload_status": "needs_youtube"})
+            notes.notify(doc.get("user_id"), "youtube", "Connect your YouTube channel", "Your video is made, but it cannot be uploaded until you connect your channel. It goes up by itself once you do.", "#/profile", "warn", key="ytconnect")
             return
         ok, msg = upload_and_publish(doc, "unlisted")
         print(f"[studio] auto-upload: {msg}")

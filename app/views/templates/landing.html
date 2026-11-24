@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clip Studio: turn game clips into channel growth</title>
+<meta name="description" content="Clip Studio finds the best game moments on Twitch and YouTube, edits them into videos with voice, captions and thumbnails, and uploads them to your own YouTube channel.">
+<meta name="theme-color" content="#0c0806">
+<style>
+:root{
+  --bg:#0c0806;--panel:#16100c;--panel2:#1f1610;--panel3:#2b1f16;--line:#34251a;--text:#fbf1e8;--muted:#b39b89;
+  --accent:#ff7a18;--accent2:#ffb15c;--ember:#ff4d1a;--ok:#34d399;--onaccent:#1a0c02;
+  --font:"Inter","Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 var(--font);-webkit-font-smoothing:antialiased;overflow-x:hidden;
+  background-image:radial-gradient(1000px 620px at 78% -6%,rgba(255,122,24,.2),transparent 62%),radial-gradient(800px 520px at -6% 22%,rgba(255,77,26,.09),transparent 62%)}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+/* nav */
+header{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);background:rgba(12,8,6,.55);border-bottom:1px solid rgba(255,255,255,.05)}
+header .wrap{display:flex;align-items:center;justify-content:space-between;height:68px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:900;letter-spacing:1.2px;font-size:15px}
+.brand .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#ffa133,#ff6a00 55%,var(--ember));display:grid;place-items:center;color:var(--onaccent);box-shadow:0 6px 22px -4px rgba(255,106,0,.65)}
+.brand .logo svg{width:18px;height:18px;fill:currentColor}
+.brand span{color:var(--accent)}
+.navr{display:flex;align-items:center;gap:8px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:99px;font-weight:700;font-size:15px;border:1px solid transparent;cursor:pointer;transition:transform .15s,box-shadow .2s,background .2s}
+.btn:active{transform:translateY(1px)}
+.btn.ghost{color:var(--text);background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.1)}
+.btn.ghost:hover{background:rgba(255,255,255,.08)}
+.btn.pri{color:var(--onaccent);background:linear-gradient(135deg,#ffb04a,#ff7a18 55%,var(--ember));box-shadow:0 10px 30px -8px rgba(255,106,0,.75),inset 0 1px 0 rgba(255,255,255,.4)}
+.btn.pri:hover{box-shadow:0 14px 40px -8px rgba(255,106,0,.95),inset 0 1px 0 rgba(255,255,255,.4);transform:translateY(-1px)}
+.btn.big{padding:15px 28px;font-size:16px}
+/* hero */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:30px;align-items:center;min-height:min(calc(100vh - 68px),780px);padding:30px 0 60px}
+.arena{position:relative;width:440px;height:440px;margin:0 auto}
+.arena .bar{position:absolute;left:50%;top:50%;width:7px;height:96px;margin:-48px -3.5px;transform:rotate(var(--a)) translateY(-150px)}
+.arena .bar i{display:block;width:100%;height:100%;border-radius:6px;background:linear-gradient(180deg,var(--accent2),var(--c));transform-origin:50% 100%;animation:eq 2.6s ease-in-out infinite;animation-delay:var(--d);opacity:.95}
+@keyframes eq{0%,100%{transform:scaleY(.22)}50%{transform:scaleY(1)}}
+.arena .core{position:absolute;inset:112px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffb04a,#ff6a00 55%,#b72a05);display:grid;place-items:center;box-shadow:0 0 90px 10px rgba(255,106,0,.45),inset 0 2px 0 rgba(255,255,255,.4)}
+.arena .core svg{width:70px;height:70px;fill:var(--onaccent);margin-left:8px}
+.arena .halo{position:absolute;inset:-20px;border-radius:50%;background:radial-gradient(circle,rgba(255,122,24,.22),transparent 65%);filter:blur(10px)}
+h1{font-size:clamp(40px,5.6vw,72px);line-height:1.02;font-weight:900;letter-spacing:-2.6px;margin:0 0 22px}
+h1 em{font-style:normal;background:linear-gradient(90deg,#ffc36b,#ff7a18 55%,#ff4d1a);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:19px;color:var(--muted);max-width:50ch;margin:0 0 30px}
+.cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.works{display:flex;align-items:center;gap:10px;margin-top:30px;color:var(--muted);font-size:14px}
+.chip{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:900;font-size:13px}
+.chip.tw{background:#7c3aed;color:#fff}.chip.yt{background:#e11d1d;color:#fff}.chip.up{background:var(--panel3);color:var(--text)}
+.chip svg{width:17px;height:17px;fill:currentColor}
+/* statement */
+.state{padding:90px 0;text-align:center}
+.state p{font-size:clamp(26px,3.7vw,46px);line-height:1.18;font-weight:800;letter-spacing:-1.3px;max-width:22em;margin:0 auto;color:#e8d8c9}
+.state b{color:var(--accent2)}
+/* rows */
+.row{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.3fr);gap:56px;align-items:center;padding:56px 0}
+.row.flip{grid-template-columns:minmax(0,1.3fr) minmax(0,.8fr)}.row.flip .txt{order:2}
+.eyebrow{font-size:12px;font-weight:800;letter-spacing:2.2px;text-transform:uppercase;color:var(--accent)}
+h2{font-size:clamp(30px,3.6vw,46px);line-height:1.06;font-weight:900;letter-spacing:-1.6px;margin:10px 0 14px}
+.txt p{color:var(--muted);font-size:17px;margin:0 0 14px;max-width:44ch}
+.ticks{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:8px}
+.ticks li{display:flex;gap:10px;color:#e8d8c9;font-size:15px}
+.ticks li::before{content:"";flex:none;width:18px;height:18px;margin-top:3px;border-radius:50%;background:rgba(255,122,24,.18) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffb15c' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12.5l4 4 8-9'/%3E%3C/svg%3E") center/12px no-repeat}
+/* app panels */
+.panel{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.01)),var(--panel);border:1px solid rgba(255,140,60,.2);border-radius:26px;padding:24px;box-shadow:0 40px 90px -40px rgba(255,106,0,.45),0 0 0 1px rgba(0,0,0,.4)}
+.panel h4{margin:0 0 4px;font-size:22px;letter-spacing:-.4px}
+.panel .hint{color:var(--muted);font-size:13px;margin:0 0 16px}
+.field{display:flex;gap:10px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:11px 14px;color:var(--muted);font-size:14px}
+.field.on{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,122,24,.16),0 0 26px -8px rgba(255,122,24,.6);color:var(--text)}
+.field .seg{background:var(--panel3);border-radius:9px;padding:4px 10px;font-weight:700;color:var(--text);font-size:13px}
+.found{display:flex;gap:10px;align-items:center;margin:12px 0 16px;font-size:14px;color:#e8d8c9}
+.found .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 4px rgba(52,211,153,.16)}
+.clips{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.clip{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel2)}
+.clip .th{aspect-ratio:16/10;position:relative}
+.clip .th::after{content:attr(data-d);position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.7);border-radius:6px;padding:1px 7px;font-size:12px;font-weight:700}
+.clip .m{padding:9px 11px;font-size:12.5px;color:var(--muted)}.clip .m b{display:block;color:var(--text);font-size:13.5px}
+.g1{background:linear-gradient(135deg,#7a2e0a,#ff7a18)}.g2{background:linear-gradient(135deg,#1f2a44,#ff9d4d)}.g3{background:linear-gradient(135deg,#3d0f0f,#ff4d1a)}
+.prog{display:grid;grid-template-columns:130px 1fr;gap:24px;align-items:center}
+.ring{width:130px;height:130px;border-radius:50%;background:conic-gradient(var(--accent) 0 var(--p,62%),var(--line) 0);display:grid;place-items:center;position:relative;box-shadow:0 0 50px -10px rgba(255,122,24,.7)}
+.ring::before{content:"";position:absolute;inset:11px;border-radius:50%;background:var(--panel)}
+.ring b{position:relative;font-size:30px;letter-spacing:-1px}
+.stages{display:grid;gap:9px}
+.stage{display:flex;align-items:center;gap:11px;padding:10px 14px;border-radius:12px;background:var(--panel2);color:var(--muted);font-size:14.5px;animation:stg 12s infinite;animation-delay:calc(var(--n) * 2.2s)}
+.stage i{flex:none;width:22px;height:22px;border-radius:50%;background:var(--panel3);display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:800}
+@keyframes stg{0%,6%{color:var(--muted);background:var(--panel2);box-shadow:none}10%,60%{color:var(--text);background:rgba(255,122,24,.14);box-shadow:inset 3px 0 0 var(--accent)}70%,100%{color:var(--text);background:var(--panel2);box-shadow:none}}
+.bar2{height:9px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:18px}.bar2 i{display:block;height:100%;width:62%;border-radius:99px;background:linear-gradient(90deg,var(--ember),var(--accent),var(--accent2));animation:fill 12s infinite}
+@keyframes fill{0%{width:8%}85%,100%{width:100%}}
+.thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.tn{aspect-ratio:16/9;border-radius:12px;position:relative;overflow:hidden;display:grid;place-items:center;font-weight:900;text-align:center;line-height:1}
+.tn span{position:relative;z-index:1;font-size:clamp(15px,2vw,26px);letter-spacing:-.5px}
+.tn.a{background:radial-gradient(circle at 70% 30%,#ffb04a,#7a2e0a 70%);color:#fff;text-shadow:3px 3px 0 #000}
+.tn.b{background:linear-gradient(135deg,#2b1f16,#ff4d1a);align-items:end;justify-items:start;padding:10px;color:#ffe08a;text-transform:uppercase;font-style:italic}
+.tn.c{background:linear-gradient(120deg,#1a1a2e 50%,#ff7a18 50%);color:#fff}.tn.c span{background:#000;padding:4px 8px;transform:rotate(-4deg)}
+.styles{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.styles span{padding:6px 13px;border:1px solid var(--line);border-radius:99px;font-size:13px;color:var(--muted)}.styles span.on{border-color:var(--accent);color:var(--text);background:rgba(255,122,24,.12)}
+.cards4{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mini{background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:16px}
+.mini b{display:block;margin-bottom:4px}.mini span{color:var(--muted);font-size:13.5px}
+.mini .ic{width:34px;height:34px;border-radius:10px;background:rgba(255,122,24,.16);color:var(--accent2);display:grid;place-items:center;margin-bottom:10px}
+.mini .ic svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.rc{width:100%;border-collapse:collapse;font-size:15px}.rc td{padding:11px 4px;border-bottom:1px dashed var(--line)}.rc td:last-child{text-align:right;font-weight:700}
+.rc tr.t td{border-bottom:0;font-size:18px;color:var(--accent2);font-weight:800}
+.note{color:var(--muted);font-size:12.5px;margin-top:12px}
+/* final */
+.final{margin:40px 0 70px;border-radius:34px;padding:70px 24px;text-align:center;background:radial-gradient(700px 300px at 50% 0%,rgba(255,122,24,.3),transparent 70%),var(--panel);border:1px solid rgba(255,140,60,.25);box-shadow:0 40px 100px -40px rgba(255,106,0,.55)}
+.final h2{font-size:clamp(32px,5vw,58px);margin:0 0 14px}
+.final p{color:var(--muted);font-size:18px;margin:0 0 28px}
+footer{border-top:1px solid rgba(255,255,255,.06);padding:30px 0 46px;color:var(--muted);font-size:14px}
+footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between;align-items:center}
+.rv{opacity:0;transform:translateY(22px);transition:opacity .8s ease,transform .8s ease}.rv.in{opacity:1;transform:none}
+@media (max-width:940px){
+  .hero{grid-template-columns:1fr;min-height:0;padding-top:10px}.arena{order:-1;zoom:.78;margin:0 auto}
+  .row,.row.flip{grid-template-columns:1fr;gap:26px;padding:38px 0}.row.flip .txt{order:0}
+  .prog{grid-template-columns:1fr}.ring{margin:0 auto}
+}
+@media (max-width:560px){.clips,.cards4{grid-template-columns:1fr}.thumbs{grid-template-columns:1fr 1fr}.arena{zoom:.62}.btn.big{width:100%;justify-content:center}.wrap{padding-left:18px;padding-right:18px}}
+@media (prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}.arena .bar i,.stage,.bar2 i{animation:none}html{scroll-behavior:auto}}
+</style>
+<noscript><style>.rv{opacity:1;transform:none}</style></noscript>
+</head>
+<body>
+<header><div class="wrap">
+  <a class="brand" href="/"><span class="logo"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg></span><div>CLIP <span>STUDIO</span></div></a>
+  <div class="navr"><a class="btn ghost" href="/app">Sign in</a><a class="btn pri" href="/app?signup=1">Get started</a></div>
+</div></header>
+
+<main>
+<section class="wrap hero">
+  <div class="arena" id="arena" aria-hidden="true"><div class="halo"></div><div class="core"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg></div></div>
+  <div>
+    <h1>Turn game clips into <em>channel growth.</em></h1>
+    <p class="sub">Clip Studio finds the best moments on Twitch and YouTube, edits them into videos with voice, captions and a thumbnail, and uploads them to your own YouTube channel.</p>
+    <div class="cta"><a class="btn pri big" href="/app?signup=1">Get started</a><a class="btn ghost big" href="#how">See how it works</a><a class="btn ghost big" href="#pay">How tokens work</a></div>
+    <div class="works">Works with
+      <span class="chip tw" title="Twitch"><svg viewBox="0 0 24 24"><path d="M4 3h17v11l-5 5h-4l-3 3v-3H4zm2 2v12h4v2l2-2h4l3-3V5zm5 3h2v5h-2zm5 0h2v5h-2z"/></svg></span>
+      <span class="chip yt" title="YouTube"><svg viewBox="0 0 24 24"><path d="M10 8.5v7l6-3.5z"/><path fill-rule="evenodd" d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4A2.5 2.5 0 0 0 2.4 7.2C2 8.8 2 12 2 12s0 3.2.4 4.8a2.5 2.5 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8c.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8zM10 15.5v-7l6 3.5z"/></svg></span>
+      <span class="chip up" title="Your own channel"><svg viewBox="0 0 24 24"><path d="M12 4l5 5h-3.5v6h-3V9H7zM5 18h14v2H5z"/></svg></span>
+    </div>
+  </div>
+</section>
+
+<section class="state wrap rv"><p>A stream is hours long. The best part is <b>seconds</b>. Clip Studio finds it, <b>makes the video</b> and posts it for you.</p></section>
+
+<section class="wrap row rv" id="how">
+  <div class="txt"><div class="eyebrow">1 · Find</div><h2>Pick a game, or a creator.</h2>
+    <p>Choose a game and the studio searches Twitch and YouTube for fresh, popular clips. Or type the name of one creator and take clips only from them.</p>
+    <ul class="ticks"><li>Every clip credits its creator and links the original</li><li>Clips you use are yours alone: nobody else gets the same one</li><li>Region and safety checks run on every clip</li></ul></div>
+  <div class="panel"><h4>Create a video</h4><p class="hint">Clips from one creator (optional)</p>
+    <div class="field on"><span class="seg">Twitch</span> Creator name or channel link</div>
+    <div class="found"><span class="dot"></span>Found: <b>Your favourite creator</b>. Clips will come only from them.</div>
+    <div class="clips">
+      <div class="clip"><div class="th g1" data-d="0:34"></div><div class="m"><b>Clutch finish</b>1.2K views</div></div>
+      <div class="clip"><div class="th g2" data-d="0:21"></div><div class="m"><b>Unexpected end</b>860 views</div></div>
+      <div class="clip"><div class="th g3" data-d="0:48"></div><div class="m"><b>Boss down</b>640 views</div></div>
+    </div></div>
+</section>
+
+<section class="wrap row flip rv">
+  <div class="panel"><h4>Making your video</h4><p class="hint">You see plain steps, not technical logs.</p>
+    <div class="prog"><div class="ring"><b>62%</b></div>
+      <div><div class="stages">
+        <div class="stage" style="--n:0"><i>1</i>Finding the best moment</div>
+        <div class="stage" style="--n:1"><i>2</i>Checking it is safe to use</div>
+        <div class="stage" style="--n:2"><i>3</i>Writing the commentary and captions</div>
+        <div class="stage" style="--n:3"><i>4</i>Editing and making the thumbnail</div>
+      </div><div class="bar2"><i></i></div></div></div></div>
+  <div class="txt"><div class="eyebrow">2 · Make</div><h2>From clip to finished video.</h2>
+    <p>The studio cuts the moment into a vertical Short or joins many into a long compilation, adds an AI voice and burned-in captions, and writes the title, description and tags.</p>
+    <ul class="ticks"><li>Choose AI commentary over music, or keep the original sound</li><li>Write the title or commentary yourself to save tokens</li><li>A content-safety check always runs first</li></ul></div>
+</section>
+
+<section class="wrap row rv">
+  <div class="txt"><div class="eyebrow">3 · Look</div><h2>Thumbnails that don't all look the same.</h2>
+    <p>Eight styles, five bold fonts, your own colours and logo. Draw one AI picture or three to choose from, pick the exact moment, and edit the text in your browser.</p>
+    <ul class="ticks"><li>Compare three versions side by side</li><li>A full in-browser editor for the final touch</li></ul></div>
+  <div class="panel"><h4>Thumbnail studio</h4><p class="hint">Three looks for the same video.</p>
+    <div class="thumbs"><div class="tn a"><span>NO WAY!</span></div><div class="tn b"><span>Last second</span></div><div class="tn c"><span>INSANE</span></div></div>
+    <div class="styles"><span class="on">Classic</span><span>Burst</span><span>Cinema</span><span>Split</span><span>Polaroid</span><span>Sticker</span><span>Bottom</span><span>Minimal</span></div></div>
+</section>
+
+<section class="wrap row flip rv">
+  <div class="panel"><h4>You stay in charge</h4><p class="hint">Nothing reaches YouTube without your rules.</p>
+    <div class="cards4">
+      <div class="mini"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg></div><b>Safety check</b><span>Every clip is reviewed first. It can't be skipped.</span></div>
+      <div class="mini"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><b>Wait for me</b><span>Check the video and choose the audio before it uploads.</span></div>
+      <div class="mini"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5v5l4.5-2.5z"/></svg></div><b>Your own channel</b><span>Sign in with Google. Videos go to your channel, as Unlisted first.</span></div>
+      <div class="mini"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg></div><b>Daily limit</b><span>Choose how many uploads a day, so nothing runs away.</span></div>
+    </div></div>
+  <div class="txt"><div class="eyebrow">4 · Control</div><h2>Fast, but never out of your hands.</h2>
+    <p>Upload automatically, or review each video first. Every member connects their own channel, and the owner sets the rules.</p></div>
+</section>
+
+<section class="wrap row rv" id="pay">
+  <div class="txt"><div class="eyebrow">5 · Pay</div><h2>Pay only for what a video really uses.</h2>
+    <p>Tokens are charged from what was actually used: AI writing, pictures and the upload. A video that fails costs nothing, and every video comes with a receipt.</p>
+    <ul class="ticks"><li>Do parts yourself (title, commentary, thumbnail) and save tokens</li><li>Your usage page shows every token spent</li></ul></div>
+  <div class="panel"><h4>Receipt</h4><p class="hint">Example only. The owner sets the real prices.</p>
+    <table class="rc"><tr><td>AI writing and checks</td><td>8 tokens</td></tr><tr><td>1 AI picture</td><td>1 token</td></tr><tr><td>Voice and captions</td><td>free</td></tr><tr><td>Upload</td><td>5 tokens</td></tr><tr class="t"><td>Total for this video</td><td>14 tokens</td></tr></table>
+    <div class="note">Unused tokens that were held for the run are returned.</div></div>
+</section>
+
+<section class="wrap rv"><div class="final"><h2>Your next video starts with <em style="font-style:normal;color:var(--accent2)">one click.</em></h2>
+  <p>Create your account and make your first video today.</p>
+  <div class="cta" style="justify-content:center"><a class="btn pri big" href="/app?signup=1">Get started</a><a class="btn ghost big" href="/app">Sign in</a></div></div></section>
+</main>
+
+<footer><div class="wrap"><div class="brand"><span class="logo"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg></span><div>CLIP <span>STUDIO</span></div></div>
+  <div>Creators are always credited. Use only clips you are allowed to use.</div></div></footer>
+
+<script>
+(function () {
+  var a = document.getElementById("arena"), N = 56, h = "";
+  for (var i = 0; i < N; i++) {
+    var ang = (360 / N) * i, hue = 22 + Math.round(14 * Math.abs(Math.sin(i / N * Math.PI * 2)));
+    h += '<div class="bar" style="--a:' + ang.toFixed(2) + 'deg;--d:' + (-(i % 14) * 0.19).toFixed(2) + 's;--c:hsl(' + hue + ',100%,52%)"><i></i></div>';
+  }
+  a.insertAdjacentHTML("afterbegin", h);
+  var els = document.querySelectorAll(".rv");
+  if (!("IntersectionObserver" in window)) { els.forEach(function (e) { e.classList.add("in"); }); return; }
+  var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }); }, {threshold: .12});
+  els.forEach(function (e) { io.observe(e); });
+})();
+</script>
+</body>
+</html>

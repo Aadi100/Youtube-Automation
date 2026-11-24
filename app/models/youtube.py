@@ -12,7 +12,8 @@ class YtAccount(Doc):
 
 class YtQuota(Doc):
     id = StringField(primary_key=True)            # Pacific-time day
-    units = IntField(default=0)
+    units = IntField(default=0)                   # the shared 10,000-unit pool (thumbnails, publishing, channel reads)
+    uploads = IntField(default=0)                 # videos.insert calls: Google counts these in their own bucket (default 100 a day)
     t = DateTimeField()
     meta = {"collection": "yt_quota"}
 

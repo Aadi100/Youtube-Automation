@@ -8,7 +8,7 @@ Long YouTube videos are cut to the most-replayed 45s (or the first 45s if no rep
 Every clip keeps its creator + channel link + original video link so videos can credit them.
 Downloaded clips are stored in MongoDB (clips collection) so reruns never repeat.
 """
-from app.models import Claim, Game, now
+from app.models import Claim, Clip, Game, now
 import argparse
 import base64
 import json
@@ -22,9 +22,8 @@ from urllib.parse import quote, quote_plus
 
 import requests
 
-from app.models import Clip
 from app.config import (
-    CLIP_COUNTRIES, CLIP_LANGUAGES, FFMPEG_BIN, INPUT_DIR, LIVE_STREAMS, LIVE_WATCH_MINUTES, TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, YOUTUBE_API_KEY,
+    FFMPEG_BIN, INPUT_DIR, LIVE_STREAMS, LIVE_WATCH_MINUTES, TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, YOUTUBE_API_KEY,
 )
 
 HELIX = "https://api.twitch.tv/helix"
@@ -46,6 +45,9 @@ NON_TARGET_SCRIPTS = re.compile("[؀-ݿऀ-෿฀-໿က-႟ក-៿"
 
 
 def _region_ok(name: str, title: str) -> bool:
+    from app.engine import audience
+    if audience.countries() is None:                 # this person chose All countries: no creator is blocked because of where they are
+        return True
     return not NON_TARGET_SCRIPTS.search(f"{name} {title}")
 
 
@@ -144,8 +146,9 @@ def _twitch_candidates_one(category: str, hours: int, min_views: int, min_s: int
     r = requests.get(f"{HELIX}/clips", headers=hdr, timeout=30,
                      params={"game_id": gid, "started_at": since, "first": 100})
     r.raise_for_status()
+    from app.engine import audience
     clips = [c for c in r.json().get("data", []) if c["view_count"] >= min_views and min_s <= c["duration"] <= max_s
-             and (c.get("language") or "").lower().split("-")[0] in CLIP_LANGUAGES
+             and audience.language_ok(c.get("language"))                    # this person's stream languages (All = every language, even when Twitch lists none)
              and _region_ok(c["broadcaster_name"], c["title"])]
     logins: Dict[str, str] = {}
     ids = list({c["broadcaster_id"] for c in clips})[:100]
@@ -194,7 +197,8 @@ def _youtube_api(query: str, hours: int) -> List[Dict]:
         sn = i["snippet"]
         country = countries.get(sn["channelId"], "")
         lang = (sn.get("defaultAudioLanguage") or sn.get("defaultLanguage") or "").lower().split("-")[0]
-        if (country and country not in CLIP_COUNTRIES) or (lang and lang not in CLIP_LANGUAGES):
+        from app.engine import audience
+        if (country and not audience.country_ok(country)) or (lang and not audience.language_ok(lang)):
             continue
         out.append({"vid": i["id"], "title": sn["title"], "channel": sn["channelTitle"],
                     "channel_url": f"https://www.youtube.com/channel/{sn['channelId']}",
@@ -261,6 +265,117 @@ def youtube_check(query: str) -> Tuple[bool, str]:
             False, "No recent videos found. Try different search terms.")
     except Exception as e:
         return False, str(e)[:200]
+
+# ------------------------------------------------------------ a creator chosen by name (instead of searching by game)
+TWITCH_LOGIN = re.compile(r"^[A-Za-z0-9_]{3,25}$")
+YT_CHANNEL = re.compile(r"^https://(?:www\.|m\.)?youtube\.com/(@[\w.\-]{3,60}|channel/UC[\w\-]{20,24}|c/[\w.\-]{2,60}|user/[\w.\-]{2,60})(?:[/?#].*)?$")
+
+
+def parse_creator(platform: str, text: str) -> Tuple[str, str]:
+    """What the member typed -> ("twitch", login) or ("youtube", channel page URL). Raises ValueError with a plain message."""
+    t = (text or "").strip()
+    if not t or len(t) > 200:
+        raise ValueError("Type the creator's name or paste a link to their channel.")
+    m = re.search(r"twitch\.tv/([A-Za-z0-9_]{3,25})(?:[/?#]|$)", t, re.I)
+    if m:
+        return "twitch", m.group(1).lower()
+    plat = (platform or "").strip().lower()
+    if re.search(r"(youtube\.com|youtu\.be)/", t, re.I):
+        plat = "youtube"
+    if plat not in ("twitch", "youtube"):
+        raise ValueError("Choose Twitch or YouTube for the creator.")
+    if plat == "twitch":
+        login = t.lstrip("@").strip()
+        if not TWITCH_LOGIN.match(login):
+            raise ValueError("That is not a Twitch name. Use the name from twitch.tv/<name> (letters, numbers and _).")
+        return "twitch", login.lower()
+    if re.match(r"^https?://", t):
+        m = YT_CHANNEL.match(t.replace("http://", "https://", 1))
+        if not m:
+            raise ValueError("Paste a YouTube channel link like https://www.youtube.com/@name (a video link is not a channel).")
+        return "youtube", "https://www.youtube.com/" + m.group(1)
+    handle = re.sub(r"[^\w.\-]", "", t.lstrip("@"))     # "Some Name" -> @SomeName
+    if len(handle) < 3:
+        raise ValueError("That channel name is too short. Use the @name from their channel page, or paste the link.")
+    return "youtube", f"https://www.youtube.com/@{handle}"
+
+
+def _twitch_user(login: str, hdr: Dict) -> Dict:
+    u = requests.get(f"{HELIX}/users", headers=hdr, timeout=30, params={"login": login})
+    u.raise_for_status()
+    data = u.json().get("data", [])
+    if not data:
+        raise RuntimeError(f"Twitch has no streamer named '{login}'. Check the spelling on twitch.tv/{login}.")
+    return data[0]
+
+
+def _yt_channel_entries(base: str, tab: str, n: int) -> Dict:
+    return json.loads(_ytdlp("--flat-playlist", "-J", "--playlist-end", str(n), f"{base}/{tab}", capture=True, timeout=90))
+
+
+def resolve_creator(platform: str, text: str) -> Dict:
+    """Find the creator and say who was matched (shown on the Create page before anything is made)."""
+    plat, ident = parse_creator(platform, text)
+    if plat == "twitch":
+        u = _twitch_user(ident, _twitch_headers())
+        return {"platform": "twitch", "name": u["display_name"], "url": f"https://www.twitch.tv/{u['login']}", "description": (u.get("description") or "")[:140]}
+    try:
+        info = _yt_channel_entries(ident, "videos", 1)
+    except RuntimeError as e:
+        raise RuntimeError(f"No YouTube channel found at {ident}. Paste the link from their channel page. ({str(e)[-120:]})")
+    name = info.get("channel") or info.get("uploader") or (info.get("title") or "").replace(" - Videos", "")
+    if not name:
+        raise RuntimeError(f"No YouTube channel found at {ident}.")
+    return {"platform": "youtube", "name": name, "url": info.get("channel_url") or info.get("uploader_url") or ident, "description": ""}
+
+
+def creator_candidates(platform: str, text: str, hours: int, min_views: int, min_s: int, max_s: int) -> List[Dict]:
+    """The creator's own recent Twitch clips, or recent videos / stream replays on their YouTube channel. No region or language filter:
+    the member chose this creator on purpose."""
+    plat, ident = parse_creator(platform, text)
+    if plat == "twitch":
+        hdr = _twitch_headers()
+        u = _twitch_user(ident, hdr)
+        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        r = requests.get(f"{HELIX}/clips", headers=hdr, timeout=30, params={"broadcaster_id": u["id"], "started_at": since, "first": 100})
+        r.raise_for_status()
+        clips = [c for c in r.json().get("data", []) if c["view_count"] >= min_views and min_s <= c["duration"] <= max_s]
+        games: Dict[str, str] = {}
+        gids = list({c["game_id"] for c in clips if c.get("game_id")})[:100]
+        if gids:
+            g = requests.get(f"{HELIX}/games", headers=hdr, timeout=30, params=[("id", i) for i in gids])
+            if g.ok:
+                games = {x["id"]: x["name"] for x in g.json().get("data", [])}
+        rows = [{"clip_id": c["id"], "source": "twitch", "streamer": c["broadcaster_name"], "title": c["title"], "views": c["view_count"],
+                 "duration": c["duration"], "url": c["url"], "channel_url": f"https://www.twitch.tv/{u['login']}", "game_name": games.get(c.get("game_id"), "")}
+                for c in clips]
+        rows.sort(key=lambda r: -r["views"])
+        print(f"[Creator] Twitch {u['display_name']} ({hours} h): {len(rows)} usable clip(s)", flush=True)
+        return rows
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp()
+    rows, seen, last_err = [], set(), None
+    for tab in ("videos", "streams"):
+        try:
+            info = _yt_channel_entries(ident, tab, 25)
+        except RuntimeError as e:
+            last_err = e
+            continue
+        cname = info.get("channel") or info.get("uploader") or "YouTube"
+        for e in info.get("entries") or []:
+            if not e or not e.get("id") or e["id"] in seen:
+                continue
+            ts = e.get("timestamp")
+            dur = int(e.get("duration") or 0)
+            if (ts and ts < cutoff) or not (min_s <= dur <= YT_MAX_SOURCE):
+                continue
+            seen.add(e["id"])
+            rows.append({"clip_id": f"yt_{e['id']}", "source": "youtube", "streamer": e.get("channel") or cname, "title": e.get("title") or "video",
+                         "views": int(e.get("view_count") or 0), "duration": dur, "url": f"https://www.youtube.com/watch?v={e['id']}",
+                         "channel_url": info.get("channel_url") or ident})
+    if not rows and last_err:
+        raise RuntimeError(f"Could not read the YouTube channel {ident}: {str(last_err)[-150:]}")
+    print(f"[Creator] YouTube {ident} ({hours} h): {len(rows)} usable video(s)", flush=True)
+    return rows
 
 
 def _best_window(info: Dict, length: int) -> Optional[tuple]:
@@ -411,15 +526,52 @@ def _interleave(lists: List[List[Dict]]) -> List[Dict]:
 def _last_clip_was_clip() -> bool:
     """For 'all' with one clip wanted: go live every other run (the last downloaded clip was not a live one)."""
     try:
-        from app.models import Clip
         last = (Clip.find_all(order=("-created_at",), limit=1) or [None])[0]
         return not (last and str(last["_id"]).startswith("live_"))
     except Exception:
         return True
 
 
+def _with_want(query: str) -> str:
+    """When the member asked for a certain kind of moment ('fights', 'reactions' ...), search for that first: '<game search> fight', '<game search> brawl' ..."""
+    from app.engine import clipcfg
+    w = clipcfg.want()
+    base = split_terms(query)
+    if not w or not base:
+        return query
+    words = clipcfg.want_words(w)[:3]
+    return "\n".join([f"{base[0]} {x}" for x in words] + base)
+
+
+def _steer(cands: List[Dict], game: Dict) -> List[Dict]:
+    """Put the candidates that look like the wanted kind of moment first. Titles only (a few hundred tokens): the AI rates how well each title fits,
+    plus a bonus for the wanted words. 'Only this' also drops the ones the AI says do not fit (as long as at least three remain)."""
+    from app.engine import clipcfg
+    w = clipcfg.want()
+    if not w or not cands:
+        return cands
+    words, pool = clipcfg.want_words(w), cands[:40]
+    scores: Dict[str, int] = {}
+    try:
+        from app.engine import moment_ai
+        scores = {k: v["score"] for k, v in moment_ai.score_clips([(c["clip_id"], c.get("title", ""), "") for c in pool], game.get("name") or "the game").items()}
+    except Exception:
+        scores = {}
+
+    def rank(c):
+        return scores.get(c["clip_id"], 50) + 15 * sum(1 for x in words if x in (c.get("title") or "").lower())
+    ordered = sorted(pool, key=rank, reverse=True) + cands[40:]
+    if w["strict"]:
+        keep = [c for c in ordered if rank(c) >= 45]
+        if len(keep) >= 3:
+            ordered = keep
+    print(f"[Want] {clipcfg.want_summary(w)}: {len(ordered)} of {len(cands)} candidates kept, best matches first", flush=True)
+    return ordered
+
+
 def discover_and_download(count: int = 6, hours: int = 24, source: str = "both", min_views: int = 0,
-                          min_seconds: int = 10, max_seconds: int = 60, game: Optional[Dict] = None) -> List[Dict]:
+                          min_seconds: int = 10, max_seconds: int = 60, game: Optional[Dict] = None,
+                          creator: Optional[Dict] = None) -> List[Dict]:
     """Download up to `count` new top clips for `game`.
     Returns [{path, streamer, title, views, clip_id, url, channel_url, source, game_id}]."""
     if source not in SOURCES:
@@ -427,23 +579,43 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
     game = game or Game.default_data()
     wanted = ["twitch", "youtube"] if source in ("both", "all") else ([] if source == "live" else [source])
     ranked, errors = [], []
-    results = _from_bank(game, count)
+    if creator:                              # a creator chosen by name: only their clips (not the game search, the bank or live streams)
+        wanted = []
+    from app.engine import clipcfg
+    _w = clipcfg.want()
+    if _w:
+        print(f"[Want] this video: {clipcfg.want_summary(_w)} ({'only this' if _w['strict'] else 'prefer this'})", flush=True)
+    results = [] if (creator or (_w and _w["strict"])) else _from_bank(game, count)      # saved moments were not picked for this request
     if len(results) >= count:
         return results
     live_n = 0
-    if source in ("live", "all"):
+    if source in ("live", "all") and not creator:
         live_n = count if source == "live" else (max(1, count // 3) if count > 1 else (1 if _last_clip_was_clip() else 0))
     for s in wanted:
         try:
             cands = (twitch_candidates(game.get("twitch_category", ""), hours, min_views, min_seconds, max_seconds)
-                     if s == "twitch" else youtube_candidates(game.get("youtube_query", ""), hours, min_views, min_seconds))
+                     if s == "twitch" else youtube_candidates(_with_want(game.get("youtube_query", "")), hours, min_views, min_seconds))
             seen = Clip.known_ids([c["clip_id"] for c in cands])
             fresh = sorted((c for c in cands if c["clip_id"] not in seen), key=lambda c: (int(c.get("duration") or 0) > 2400, -c["views"]))
+            fresh = _steer(fresh, game)
             print(f"[Discovery] {game['name']} / {s}: {len(fresh)} new candidate(s)")
             ranked.append(fresh)
         except Exception as e:
             errors.append(f"{s}: {e}")
             print(f"[Discovery] {s} unavailable - {e}")
+    if creator:
+        try:
+            cands = creator_candidates(creator["platform"], creator["name"], hours, min_views, min_seconds, max_seconds)
+            seen = Clip.known_ids([c["clip_id"] for c in cands])
+            fresh = [c for c in cands if c["clip_id"] not in seen]
+            if not fresh:
+                raise RuntimeError(f"No new usable clips from {creator['name']} in the last {hours} h.")
+            fresh = _steer(fresh, game)
+            print(f"[Discovery] creator {creator['name']}: {len(fresh)} new candidate(s)", flush=True)
+            ranked.append(fresh)
+        except Exception as e:
+            errors.append(str(e))
+            print(f"[Discovery] creator unavailable - {e}", flush=True)
     if live_n:
         try:
             from app.engine import live_scanner
@@ -465,13 +637,12 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
             print("[Discovery] tried 8 candidates without success - stopping this round", flush=True)
             break
         print(f"[Discovery] candidate {attempts}", flush=True)
-        if c.get("source") == "youtube":
+        if c.get("source") == "youtube" and not creator:
             from app.engine import region
             r_ok, r_why, r_name, r_url = region.check_video(c["url"], c.get("channel_url"), c.get("title", ""), c.get("streamer", ""))
             if not r_ok:
                 print(f"[Region] skipped {c['streamer']}: {r_why}", flush=True)
                 try:
-                    from app.models import Clip
                     Clip.set_fields(c["clip_id"], status="rejected", reject_reason=r_why, title=c["title"], streamer=c["streamer"],
                                     source="youtube", created_at=now(), upsert=True)
                 except Exception:
@@ -506,7 +677,6 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
         if not ok:
             print(f"[Safety] skipped {c['clip_id']}: {why}")
             try:
-                from app.models import Clip
                 Clip.set_fields(c["clip_id"], status="rejected", reject_reason=why)
                 Path(path).unlink(missing_ok=True)
             except Exception:

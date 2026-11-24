@@ -20,7 +20,8 @@ def _redirect_uri(h) -> str:
 def h_yt_status(h):
     st = youtube_api.public_status(h.uid)
     if h.is_owner():
-        st.update(redirect_uri=_redirect_uri(h), quota_used=youtube_api.quota_used(), quota_total=youtube_api.daily_units())
+        st.update(redirect_uri=_redirect_uri(h), quota_used=youtube_api.quota_used(), quota_total=youtube_api.daily_units(),
+                      uploads_used=youtube_api.uploads_used(), uploads_total=youtube_api.daily_uploads())
     st["queued_uploads"] = Video.total(user_id=h.uid, upload_status__in=["queued", "uploading"])
     h.send_json(200, st)
 

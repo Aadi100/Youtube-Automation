@@ -13,7 +13,7 @@ from app.services import storage_service as storage
 from app.services import token_service as tokens
 from app.services.queue_service import dispatcher
 from app.services.schedule_service import scheduler
-from app.services.upload_service import _owners_video, auto_upload, uploader
+from app.services.upload_service import _owners_video, auto_upload, requeue_stuck_uploads, uploader
 from app.utils.envfile import setup_code, studio_secret
 
 
@@ -24,6 +24,8 @@ def _alert(key: str, subject: str, text: str) -> None:
         return
     System.set_fields("alerts", {f"sent.{key}": time.time()}, upsert=True)
     print(f"[studio] ALERT {key}: {text}")
+    from app.services import notification_service as notes
+    notes.notify_owner("system", f"Problem: {subject}", text, "#/users", "warn", key=f"sys-{key}")
     owner = User.find_one(role="owner")
     if owner and notify.configured():
         cfg = notify.get_cfg()
@@ -45,8 +47,19 @@ def _check_alerts() -> None:
         _alert("workers", "no worker is running", "Videos are waiting in the queue but no render worker has reported in for a while.")
 
 
+def reap_stale_scans(hours: int = 3) -> int:
+    """A clip-finder scan, reaction scan or research that has said 'running' for hours lost its process (a restart, a crash): mark it as stopped,
+    so it does not block the next one forever ('A scan is already running')."""
+    from app.models import ResearchRun, RxScan, Scan
+    cutoff = now() - timedelta(hours=hours)
+    n = 0
+    for M in (Scan, RxScan, ResearchRun):
+        n += M.objects(status="running", created_at__lt=cutoff).update(set__status="error", set__message="Stopped: the server restarted or this took too long. Start it again.")
+    return n
+
+
 def maintenance() -> None:
-    last = {"clean": 0.0, "alert": 0.0}
+    last = {"clean": 0.0, "alert": 0.0, "scans": 0.0}
     first = True
     while True:
         if not first:
@@ -56,9 +69,17 @@ def maintenance() -> None:
             System.set_fields(f"worker:{WORKER_ID}", t=time.time(), running=len(RUNNING), max=MAX_JOBS, role=ROLE, upsert=True)
             if not System.acquire_lease("maintenance", WORKER_ID, 60):
                 continue
+            stuck = requeue_stuck_uploads()
+            if stuck:
+                print(f"[studio] {stuck} upload(s) were interrupted by a restart and are back in the queue")
             for jid in Job.reap_stale():
                 tokens.refund_job(jid)
                 print(f"[studio] job {jid} lost its worker: marked failed and refunded")
+            if time.time() - last["scans"] > 300:
+                last["scans"] = time.time()
+                lost = reap_stale_scans()
+                if lost:
+                    print(f"[studio] {lost} scan(s) had lost their process: marked as stopped")
             if time.time() - last["clean"] > 1800:
                 last["clean"] = time.time()
                 st = storage.cleanup()

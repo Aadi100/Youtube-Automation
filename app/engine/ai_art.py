@@ -21,6 +21,9 @@ MOODS = ["explosive action scene with bright orange and blue lighting", "chaotic
          "dramatic hero shot with glowing particles and bright rim light", "colourful over-the-top adventure under a bright sky"]
 GEMINI_MODEL = "gemini-2.5-flash-image"
 _gemini_blocked = False   # set after a quota error so we don't retry for every video
+import threading  # noqa: E402
+_gemini_image_usage = threading.local()
+LAST_PROVIDER = {"name": None}     # which service really drew the last picture: "gemini" or "free"
 
 
 def enabled() -> bool:
@@ -39,12 +42,24 @@ def build_prompt(game_name: str, mood: Optional[str] = None, scene: str = "") ->
             "no text, no letters, no logo, no watermark, no real people")
 
 
-def _from_gemini(prompt: str, mode: str, out: Path) -> Optional[Path]:
+def build_redraw_prompt(game_name: str, scene: str = "") -> str:
+    game = re.sub(r"[^\w\s\-:&'.]", "", game_name or "video game")[:60]
+    scene = re.sub(r"[^\w\s,.\-']", "", scene or "")[:200].strip()
+    return (f"Redraw this video frame from the game {game} as a dramatic, eye-catching YouTube thumbnail background. Keep the same scene, characters and action so it still matches the video. "
+            + (f"Mood and details: {scene}. " if scene else "")
+            + "Exaggerate the colours and lighting: bold teal-and-orange grade with neon accents, strong depth and contrast, glowing rim light, high detail. "
+              "Leave the middle and one side calm enough for a big headline. No text, no letters, no logo, no watermark.")
+
+
+def _from_gemini(prompt: str, mode: str, out: Path, ref: Optional[Path] = None) -> Optional[Path]:
     global _gemini_blocked
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key or _gemini_blocked:
         return None
-    body = {"contents": [{"parts": [{"text": prompt}]}],
+    parts = [{"text": prompt}]
+    if ref and Path(ref).is_file():            # image-to-image: Gemini redraws the real frame (Medium and High)
+        parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(Path(ref).read_bytes()).decode()}})
+    body = {"contents": [{"parts": parts}],
             "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": "9:16" if mode == "9:16" else "16:9"}}}
     r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
                       headers={"x-goog-api-key": key}, json=body, timeout=180)
@@ -53,6 +68,11 @@ def _from_gemini(prompt: str, mode: str, out: Path) -> Optional[Path]:
         print("[AI art] Gemini image quota not available (enable billing in Google AI Studio) - using the free service")
         return None
     r.raise_for_status()
+    try:
+        from app.engine import gemini_util
+        _gemini_image_usage.usage = gemini_util.usage_of(r.json())
+    except Exception:
+        _gemini_image_usage.usage = (0, 0)
     for part in r.json()["candidates"][0]["content"]["parts"]:
         d = part.get("inlineData") or part.get("inline_data")
         if d:
@@ -81,21 +101,33 @@ def _from_free(prompt: str, mode: str, out: Path) -> Optional[Path]:
     return None
 
 
-def generate_background(game_name: str, mode: str, out: Path, scene: str = "") -> Optional[Path]:
-    """Returns the path of a generated background image (no text on it), or None."""
+def _record_image(provider: str) -> None:
+    LAST_PROVIDER["name"] = provider
+    from app.models import UsageEvent
+    tin, tout = getattr(_gemini_image_usage, "usage", (0, 0)) if provider == "gemini" else (0, 0)
+    UsageEvent.record("image", provider=provider, task="background", units=1, tokens_in=tin, tokens_out=tout)
+
+
+def generate_background(game_name: str, mode: str, out: Path, scene: str = "", ref: Optional[Path] = None, tier: Optional[str] = None) -> Optional[Path]:
+    """Returns the path of a generated background image (no text on it), or None.
+    tier free: the free image service. tier medium / high: Gemini redraws the real frame `ref`; if that is not possible the free service is used."""
+    LAST_PROVIDER["name"] = None
     if not enabled():
         return None
-    prompt = build_prompt(game_name, scene=scene)
-    provider = (os.environ.get("AI_IMAGE_PROVIDER") or "free").strip().lower()
+    tier = (tier or os.environ.get("THUMB_TIER") or "free").strip().lower()
+    prompt = build_redraw_prompt(game_name, scene) if (ref and tier in ("medium", "high")) else build_prompt(game_name, scene=scene)
+    provider = "gemini" if tier in ("medium", "high") else (os.environ.get("AI_IMAGE_PROVIDER") or "free").strip().lower()
     try:
         if provider == "gemini":
-            p = _from_gemini(prompt, mode, out)
+            p = _from_gemini(prompt, mode, out, ref if tier in ("medium", "high") else None)
             if p:
                 print("[AI art] background from Gemini")
+                _record_image("gemini")
                 return p
         p = _from_free(prompt, mode, out)
         if p:
             print("[AI art] background generated")
+            _record_image("free")
             return p
     except Exception as e:
         print(f"[AI art] failed ({type(e).__name__}: {str(e)[:120]}) - using the video frame instead")

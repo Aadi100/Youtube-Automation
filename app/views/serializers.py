@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.models import Clip, UserPrefs, clean
 from app.services import auth_service as auth
+from app.views.progress import friendly_error, job_progress
 
 
 def _clipping_payload(uid) -> dict:
@@ -37,12 +38,16 @@ def twitch_pack(d: dict) -> dict:
             "category": d.get("game_name") or "", "tags": tags}
 
 
-def _vid(doc: dict) -> dict:
+def _vid(doc: dict, owner: bool = False) -> dict:
     out = clean(doc)
+    if not owner:                       # members see what was done and what it cost, never which service did it
+        from app.services import token_service
+        if out.get("receipt") is not None:
+            out["receipt"] = token_service.member_receipt(out["receipt"])
     out["twitch"] = {k: (v.isoformat() if hasattr(v, "isoformat") else v)
                      for k, v in (doc.get("twitch") or {"status": "pending"}).items()}
     out["twitch_pack"] = twitch_pack(doc)
-    out["file_mb"] = round(Path(doc.get("video_path", "")).stat().st_size / 1e6, 1) if Path(doc.get("video_path", "")).is_file() else None
+    out["file_mb"] = round(Path(doc.get("video_path") or "").stat().st_size / 1e6, 1) if Path(doc.get("video_path") or "").is_file() else None
     return out
 
 
@@ -53,7 +58,7 @@ def _utc_iso(dt):
     return (dt.replace(tzinfo=dtz.utc) if dt.tzinfo is None else dt).isoformat()
 
 
-def _job_view(j, games_by_id, videos_by_id):
+def _job_view(j, games_by_id, videos_by_id, owner=False):
     log = [str(x) for x in (j.get("log") or [])]
     game = next((m[1].strip() for m in (re.match(r"\[Game\]\s*(.+)", l) for l in log) if m), None)
     vid = videos_by_id.get(str(j.get("video_id") or ""))
@@ -66,11 +71,12 @@ def _job_view(j, games_by_id, videos_by_id):
     return {"id": str(j["_id"]), "mode": j.get("mode"), "kind": "compilation" if "compilation" in str(j.get("mode")) else "short",
             "scheduled": j.get("source") == "n8n", "status": j.get("status"), "game": game,
             "started": _utc_iso(j.get("created_at")), "finished": _utc_iso(j.get("finished_at")),
-            "last_line": last[:160], "error": (j.get("error") or "")[:200] or None,
+            "last_line": last[:160] if owner else job_progress(j)["message"], "error": ((j.get("error") or "")[:200] or None) if owner else friendly_error(j.get("error")),
             "video": ({"id": str(vid["_id"]), "title": vid.get("title"), "status": vid.get("status"),
                        "youtube_url": vid.get("youtube_url")} if vid else None)}
 
 
 def _me(u: dict) -> dict:
     p = UserPrefs.of(u["_id"])
-    return {**auth.public(u), "prefs": {"tts_voice": p.get("tts_voice", ""), "default_audio": p.get("default_audio", ""), "notify_to": p.get("notify_to", "")}}
+    from app.services import profile_service
+    return {**auth.public(u), "avatar": profile_service.has_avatar(u["_id"]), "prefs": {"tts_voice": p.get("tts_voice", ""), "default_audio": p.get("default_audio", ""), "notify_to": p.get("notify_to", ""), "hold_uploads": bool(p.get("hold_uploads"))}}

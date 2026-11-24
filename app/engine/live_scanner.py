@@ -25,9 +25,9 @@ from urllib.parse import quote_plus
 import numpy as np
 import requests
 
-from app.engine import clipcfg
+from app.engine import audience, clipcfg
 from app.engine import discovery as D
-from app.config import CLIP_LANGUAGES, FFMPEG_BIN, INPUT_DIR, TEMP_DIR
+from app.config import FFMPEG_BIN, INPUT_DIR, TEMP_DIR
 
 LAUGH = re.compile(r"\b(lul|lulw|kekw|omegalul|lmao|lmfao|haha+|pog+|poggers|pogchamp|wtf|omg|holy|clip(?: ?it)?|"
                    r"no ?way|insane|crazy|dead|dying|wow|w+)\b|[😂🤣😭🔥💀]", re.I)
@@ -51,7 +51,7 @@ def twitch_live_streams(game: Dict, limit: int = 20) -> List[Dict]:
         gid = D.twitch_category_id(cat, hdr)
         if not gid:
             continue
-        params = [("game_id", gid), ("first", "40"), ("type", "live")] + [("language", l) for l in sorted(CLIP_LANGUAGES)[:20]]
+        params = [("game_id", gid), ("first", "40"), ("type", "live")] + [("language", l) for l in sorted(audience.languages() or [])[:20]]     # this person's stream languages; none = no language filter (they chose All)
         r = requests.get(f"{D.HELIX}/streams", headers=hdr, params=params, timeout=30)
         r.raise_for_status()
         for s in r.json().get("data", []):
@@ -96,7 +96,6 @@ def youtube_live_streams(query: str, limit: int = 20) -> List[Dict]:
 
 def _recently_scanned(stream: Dict, hours: int = 3) -> bool:
     try:
-        from app.models import Clip
         since = now() - timedelta(hours=hours)
         return Clip.total(id__regex=f"^live_{re.escape(stream['login'])}_", created_at__gt=since) > 0
     except Exception:

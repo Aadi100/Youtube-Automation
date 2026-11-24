@@ -103,13 +103,15 @@ def transcribe_audio_to_words(video_path: Path, temp_dir: Path):
         from faster_whisper import WhisperModel
         print("[Subtitles] Using faster-whisper model for transcription...")
         model = WhisperModel("base", device="cpu", compute_type="int8")
-        segments, _ = model.transcribe(str(audio_path), word_timestamps=True)
+        segments, info = model.transcribe(str(audio_path), word_timestamps=True)
         for seg in segments:
             if seg.words:
                 for w in seg.words:
                     words.append({"word": w.word, "start": w.start, "end": w.end})
             else:
                 words.append({"word": seg.text, "start": seg.start, "end": seg.end})
+        from app.models import UsageEvent
+        UsageEvent.record("whisper", provider="whisper", task="captions", units=float(getattr(info, "duration", 0) or 0))
         return words
     except ImportError:
         pass

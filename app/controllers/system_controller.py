@@ -6,8 +6,9 @@ from flask import Blueprint
 
 from app.config import FFMPEG_BIN, MUSIC_DIR
 from app.http import register
-from app.models import Clip, Job, Video, ping
-from app.runtime import DASH, MUSIC_EXT
+from app.models import Clip, Job, User, Video, ping
+from app.runtime import DASH, LANDING, MUSIC_EXT
+from app.services import auth_service as auth
 from app.services import notify_service as notify
 from app.services.queue_service import busy
 from app.utils.envfile import read_env
@@ -28,14 +29,28 @@ def h_ui_version(h):
     h.send_json(200, {"v": int(DASH.stat().st_mtime)})
 
 
-def h_index(h):
-    body = DASH.read_bytes()
+def _page(h, path: Path) -> None:
+    body = path.read_bytes()
     h.send_response(200)
     h.send_header("Cache-Control", "no-store")
     h.send_header("Content-Type", "text/html; charset=utf-8")
     h.send_header("Content-Length", str(len(body)))
     h.end_headers()
     h.wfile.write(body)
+
+
+def h_index(h):
+    """The home page. Visitors who are not signed in see the public landing page; members go straight to the dashboard.
+    The very first start (no account yet) and the Google sign-in return trip also open the dashboard."""
+    signed_in = bool(auth.user_for_token(h.session_token()))
+    if signed_in or h.q.get("yt") or User.total() == 0:
+        return _page(h, DASH)
+    _page(h, LANDING)
+
+
+def h_app(h):
+    """The dashboard itself: shows the sign-in form to visitors."""
+    _page(h, DASH)
 
 
 def h_health(h):
@@ -62,6 +77,7 @@ def h_stats(h):
 
 ROUTES = [
     (r"/", "GET", h_index),
+    (r"/app", "GET", h_app),
     (r"/healthz", "GET", h_healthz),
     (r"/api/ui-version", "GET", h_ui_version),
     (r"/api/health", "GET", h_health),

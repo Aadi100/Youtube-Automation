@@ -10,11 +10,12 @@ LLM_SPLIT=deepseek / gemini puts that one first for every task. Without a DeepSe
 """
 import json
 import os
+import threading
 from typing import List
 
 import requests
 
-from app.engine import gemini_util
+from app.engine import ai_saver, gemini_util
 
 ORDER = {"commentary": ["deepseek", "gemini"], "moments": ["deepseek", "gemini"],
          "metadata": ["deepseek", "gemini"], "scoring": ["gemini", "deepseek"]}
@@ -24,17 +25,22 @@ def _log(msg: str) -> None:
     print(f"[AI] {msg}".encode("ascii", "replace").decode("ascii"), flush=True)
 
 
+_deepseek_usage = threading.local()   # AI tokens (in, out) of the DeepSeek call this thread just made
+
+
 def deepseek_ready() -> bool:
     return bool(os.environ.get("DEEPSEEK_API_KEY"))
 
 
-def _deepseek(prompt: str, timeout: int, json_mode: bool) -> str:
+def _deepseek(prompt: str, timeout: int, json_mode: bool, max_tokens: int = 0, model_id: str = "") -> str:
     key = os.environ.get("DEEPSEEK_API_KEY", "")
     if not key:
         raise RuntimeError("no DeepSeek key")
     base = (os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").rstrip("/")
-    model = os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat"
+    model = model_id or os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat"
     body = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.7, "stream": False}
+    if max_tokens:
+        body["max_tokens"] = int(max_tokens)
     if json_mode:
         # DeepSeek's JSON mode returns an object, so lists are wrapped and unwrapped again below
         body["messages"] = [{"role": "user", "content": prompt + '\n\nReturn your answer as a JSON object of the form {"result": <the JSON you were asked for>}.'}]
@@ -49,6 +55,8 @@ def _deepseek(prompt: str, timeout: int, json_mode: bool) -> str:
             last = type(e).__name__
             continue
         if r.status_code == 200:
+            u = r.json().get("usage") or {}
+            _deepseek_usage.usage = (int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0))
             text = (r.json()["choices"][0]["message"]["content"] or "").strip()
             if not text:
                 last = "empty answer"
@@ -71,12 +79,33 @@ def order_for(task: str) -> List[str]:
     return [p for p in base if p != "deepseek" or deepseek_ready()]
 
 
+def _record(kind: str, provider: str, task: str, tin: int, tout: int) -> None:
+    from app.models import UsageEvent
+    UsageEvent.record(kind, provider=provider, task=task, tokens_in=tin, tokens_out=tout)
+    ai_saver.spend(tin + tout)
+
+
 def generate(task: str, prompt: str, json_mode: bool = False, timeout: int = 60) -> str:
     """Run a text task on the preferred AI, falling back to the other. Raises RuntimeError if every provider failed."""
+    if (os.environ.get("LLM_DISABLED") or "").strip().lower() in ("1", "true", "yes", "on"):
+        raise RuntimeError("AI text is switched off for this video (the member chose to write it themselves)")
+    if ai_saver.over_budget(task):       # this video has used its AI budget: the caller falls back to its built-in text
+        ai_saver.saved(task, "budget", max(200, len(prompt) // 4))
+        raise RuntimeError("the AI token budget for this video is used up")
     errors = []
     for p in order_for(task):
         try:
-            text = _deepseek(prompt, timeout, json_mode) if p == "deepseek" else gemini_util.generate(prompt, timeout=timeout, json_mode=json_mode)
+            if p == "deepseek":
+                _deepseek_usage.usage = (0, 0)
+                text = _deepseek(prompt, timeout, json_mode, ai_saver.max_tokens(task) or 0)
+                tin, tout = getattr(_deepseek_usage, "usage", (0, 0))
+            else:
+                gemini_util._last.usage = (0, 0)
+                text = gemini_util.generate(prompt, timeout=timeout, json_mode=json_mode)
+                tin, tout = gemini_util.last_usage()
+            if not (tin or tout):     # the service did not say: estimate from the size of the text (about 4 characters per token)
+                tin, tout = len(prompt) // 4, len(text) // 4
+            _record("llm", p, task, tin, tout)
             _log(f"{task}: answered by {p}")
             return text
         except Exception as e:
