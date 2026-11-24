@@ -1,0 +1,10 @@
+# One database backup of one Clip Studio (accounts, games, clips, videos, schedules, tokens ...) into /var/backups/<name>; the last 7 are kept.
+# MongoDB Atlas's free plan has no automatic backups, so this is your safety net. A template, started every night by <name>-backup.timer.
+[Unit]
+Description=@@APP_NAME@@ database backup (Clip Studio)
+
+[Service]
+Type=oneshot
+User=@@APP_USER@@
+WorkingDirectory=@@APP_DIR@@
+ExecStart=@@APP_DIR@@/venv/bin/python -m app.services.backup_service backup --dir /var/backups/@@APP_NAME@@ --keep 7

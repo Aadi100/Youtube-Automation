@@ -1,0 +1,31 @@
+# The dashboard and API of one Clip Studio, served by gunicorn. A template: deploy/setup_vps.sh fills in the @@...@@ parts and installs it
+# as /etc/systemd/system/<name>-web.service. The video makers are a separate service (<name>-worker).
+[Unit]
+Description=@@APP_NAME@@ dashboard (Clip Studio, gunicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@@APP_USER@@
+WorkingDirectory=@@APP_DIR@@
+Environment=PYTHONUNBUFFERED=1
+# this studio's own Node.js comes first, so yt-dlp finds it and the system's Node.js is never touched
+Environment=PATH=@@APP_DIR@@/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=STUDIO_ROLE=web
+Environment=STUDIO_PORT=@@PORT@@
+Environment=WEB_BIND=@@BIND@@
+Environment=WEB_NAME=@@APP_NAME@@-web
+# Environment=WEB_WORKERS=2
+# Environment=WEB_THREADS=16
+ExecStartPre=/usr/bin/touch @@APP_DIR@@/.env
+ExecStart=@@APP_DIR@@/venv/bin/gunicorn -c deploy/gunicorn.conf.py wsgi:app
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+TimeoutStopSec=40
+LimitNOFILE=65535
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
