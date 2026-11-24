@@ -224,6 +224,7 @@ if [ "$MODE" = "update" ]; then
   make_venv
   install_units
   systemctl daemon-reload
+  systemctl enable --now "${APP_NAME}-backup.timer" "${APP_NAME}-ytdlp.timer" >/dev/null 2>&1 || true   # timers added by a newer version get switched on too
   wait_for_studio
   say "$APP_NAME is updated."
   exit 0
