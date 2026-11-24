@@ -7,4 +7,4 @@ Description=@@APP_NAME@@ downloader update (yt-dlp)
 Type=oneshot
 User=@@APP_USER@@
 WorkingDirectory=@@APP_DIR@@
-ExecStart=@@APP_DIR@@/venv/bin/python -m pip install --upgrade --quiet yt-dlp
+ExecStart=@@APP_DIR@@/venv/bin/python -m pip install --upgrade --quiet 'yt-dlp[default]'

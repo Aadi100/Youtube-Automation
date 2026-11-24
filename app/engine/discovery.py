@@ -77,7 +77,8 @@ def _ytdlp(*args: str, capture: bool = False, timeout: Optional[int] = 180) -> s
             yt_access.note_block(err.strip().splitlines()[-1] if err.strip() else "")
             raise yt_access.YouTubeBlocked(yt_access.OWNER_MESSAGE)
         lines = [l for l in (err or "").strip().splitlines() if l.strip()]
-        raise RuntimeError("yt-dlp: " + " ".join(lines[-2:])[:400])
+        errs = [l for l in lines if l.startswith("ERROR")]    # the last two lines are often only warnings: show the real error first
+        raise RuntimeError("yt-dlp: " + " ".join((errs[-1:] + [l for l in lines[-2:] if l not in errs[-1:]]) if errs else lines[-2:])[:400])
     return out if capture else ""
 
 
