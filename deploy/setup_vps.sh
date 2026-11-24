@@ -176,12 +176,17 @@ install_units() {
   chown "$APP_USER:$APP_USER" "/var/backups/$APP_NAME"
 }
 
+NODE_MAJOR=24     # yt-dlp's YouTube solver does not accept older Node.js versions ("node-20 (unsupported)"): this is the current long-term-support line
 install_private_node() {
   # yt-dlp needs Node.js to read YouTube. This studio gets its OWN copy in $APP_DIR/node (the services put it first in their PATH), so the
-  # Node.js of your other apps is never upgraded or replaced.
-  if [ -x "$APP_DIR/node/bin/node" ]; then return; fi
-  say "Installing Node.js for this studio only (the system's own Node.js is not touched)"
-  local arch file want tmp base="https://nodejs.org/dist/latest-v20.x"
+  # Node.js of your other apps is never upgraded or replaced. A copy that is too old (from an earlier version of this script) is replaced.
+  local have=0
+  if [ -x "$APP_DIR/node/bin/node" ]; then
+    have="$("$APP_DIR/node/bin/node" -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+    [ "$have" -ge "$NODE_MAJOR" ] 2>/dev/null && return
+  fi
+  say "Installing Node.js $NODE_MAJOR for this studio only (the system's own Node.js is not touched)"
+  local arch file want tmp base="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x"
   case "$(uname -m)" in x86_64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) die "no Node.js download for this CPU ($(uname -m))" ;; esac
   file="$(curl -fsSL "$base/SHASUMS256.txt" | awk -v a="linux-$arch.tar.gz" '$2 ~ a"$" {print $2; exit}')"
   [ -n "$file" ] || die "could not find the Node.js download on nodejs.org"
@@ -189,8 +194,11 @@ install_private_node() {
   tmp="$(mktemp -d)"
   curl -fsSL "$base/$file" -o "$tmp/node.tar.gz"
   echo "$want  $tmp/node.tar.gz" | sha256sum -c - >/dev/null || die "the Node.js download is damaged (checksum does not match)"
-  mkdir -p "$APP_DIR/node"
-  tar -xzf "$tmp/node.tar.gz" -C "$APP_DIR/node" --strip-components=1
+  mkdir -p "$tmp/node"
+  tar -xzf "$tmp/node.tar.gz" -C "$tmp/node" --strip-components=1
+  rm -rf "$APP_DIR/node"                      # only after the new one is downloaded, checked and unpacked
+  mkdir -p "$APP_DIR"
+  mv "$tmp/node" "$APP_DIR/node"
   rm -rf "$tmp"
   chown -R "$APP_USER:$APP_USER" "$APP_DIR/node"
 }
