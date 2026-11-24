@@ -3103,7 +3103,7 @@ async function settings() {
     });
   };
   const saveAll = guard(async () => {
-    const body = {}; document.querySelectorAll("#spanes [data-k]").forEach(i => body[i.dataset.k] = i.value);
+    const body = {}; document.querySelectorAll("#spanes input[data-k], #spanes select[data-k], #spanes textarea[data-k]").forEach(i => body[i.dataset.k] = i.value);
     await api("/api/settings", {method: "PUT", body}); toast("Settings saved"); loadS();
   });
   const loadS = guard(async () => {
@@ -3128,7 +3128,7 @@ async function settings() {
     });
     if ($("#mt")) $("#mt").onclick = guard(async () => {
       $("#mres").textContent = "Saving and sending…";
-      const body = {}; document.querySelectorAll("#spanes [data-k]").forEach(i => body[i.dataset.k] = i.value);
+      const body = {}; document.querySelectorAll("#spanes input[data-k], #spanes select[data-k], #spanes textarea[data-k]").forEach(i => body[i.dataset.k] = i.value);
       await api("/api/settings", {method: "PUT", body});
       try { const r = await api("/api/email/test", {method: "POST"}); $("#mres").innerHTML = `<span style="color:var(--ok)">✔</span> ${esc(r.message)}`; }
       catch (e) { $("#mres").innerHTML = `<span style="color:var(--bad)">✖</span> ${esc(e.message)}`; }
