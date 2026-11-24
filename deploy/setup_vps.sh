@@ -109,7 +109,7 @@ set_env() {   # set_env KEY VALUE: change the line in this studio's .env, or add
 port_in_use() { ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$1\$"; }
 default_port() {
   # the port is fixed: the one you gave, else the one this studio already has, else 8765. It is never changed behind your back.
-  local own; own="$(grep -hs '^Environment=STUDIO_PORT=' "$WEB_UNIT" 2>/dev/null | head -1 | cut -d= -f3)"
+  local own; own="$(grep -hs '^Environment=STUDIO_PORT=' "$WEB_UNIT" 2>/dev/null | head -1 | cut -d= -f3 || true)"
   echo "${own:-8765}"
 }
 
@@ -214,8 +214,8 @@ wait_for_studio() {
 if [ "$MODE" = "update" ]; then
   id "$APP_USER" >/dev/null 2>&1 && [ -f "$WEB_UNIT" ] || die "'$APP_NAME' is not installed here yet (no $WEB_UNIT). Run deploy/setup_vps.sh first, or give its APP_NAME"
   # keep what this studio already uses: its port, and whether it sits behind nginx
-  PORT="$(grep -h '^Environment=STUDIO_PORT=' "$WEB_UNIT" | head -1 | cut -d= -f3)"
-  BIND="$(grep -h '^Environment=WEB_BIND=' "$WEB_UNIT" | head -1 | cut -d= -f3)"
+  PORT="$(grep -h '^Environment=STUDIO_PORT=' "$WEB_UNIT" | head -1 | cut -d= -f3 || true)"; PORT="${PORT:-8765}"
+  BIND="$(grep -h '^Environment=WEB_BIND=' "$WEB_UNIT" | head -1 | cut -d= -f3 || true)"; BIND="${BIND:-127.0.0.1:$PORT}"
   install_private_node
   sync_code
   make_venv
@@ -238,7 +238,7 @@ fi
 # another studio must not share this one's database, folder or domain by accident
 for other in /etc/systemd/system/*-web.service; do
   [ -e "$other" ] && [ "$other" != "$WEB_UNIT" ] || continue
-  o_dir="$(grep -h '^WorkingDirectory=' "$other" | head -1 | cut -d= -f2)"
+  o_dir="$(grep -h '^WorkingDirectory=' "$other" | head -1 | cut -d= -f2 || true)"
   [ "$o_dir" != "$APP_DIR" ] || die "the folder $APP_DIR already belongs to $(basename "$other" -web.service). Give this studio its own APP_NAME"
   if [ -f "$o_dir/.env" ] && grep -qs "^MONGODB_DB=$MONGODB_DB\$" "$o_dir/.env"; then
     die "the database '$MONGODB_DB' is already used by $(basename "$other" -web.service). Give this studio its own MONGODB_DB"
