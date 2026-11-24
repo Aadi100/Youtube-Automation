@@ -1281,7 +1281,8 @@ async function create() {
     box.onclick = e => { const b = e.target.closest(".pk"); if (!b) return; sel.value = b.dataset.v; sel.dispatchEvent(new Event("change")); };
     sel.addEventListener("change", draw); draw(); return draw;
   };
-  tiles("pk_source", "source", [["all", "Everything", "Clips and live streams", "all"], ["both", "Twitch + YouTube", "Clips and videos", "both"], ["live", "Live now", "Streams happening now", "live"], ["twitch", "Twitch", "Clips only", "twitch"], ["youtube", "YouTube", "Videos only", "youtube"]]);
+  let SRC = ["twitch", "youtube"]; try { SRC = (await api("/api/sources")).mine; } catch (e) {}        // where this account looks for clips (Settings -> Clip sources)
+  tiles("pk_source", "source", [["all", "Everything", "Clips and live streams", "all"], ["both", "Twitch + YouTube", "Clips and videos", "both"], ["live", "Live now", "Streams happening now", "live"], ["twitch", "Twitch", "Clips only", "twitch"], ["youtube", "YouTube", "Videos only", "youtube"]].filter(t => t[0] === "twitch" ? SRC.includes("twitch") : t[0] === "youtube" ? SRC.includes("youtube") : t[0] === "both" ? SRC.length > 1 : true));
   tiles("pk_audio", "audio", [["default", "My default", "From Settings", "bolt"], ["replace", "AI commentary", "Music + voice, original muted. Safest.", "mic"], ["bed", "Original under music", "Original sound turned down", "bed"], ["original", "Original only", "Untouched. High claim risk.", "wave"]]);
   tiles("pk_after", "after", [["", "My setting", "From Settings", "bolt"], ["auto", "Upload by itself", "Goes to YouTube as Unlisted", "upload"], ["hold", "Wait for me", "I check it and choose the audio first", "hold"]]);
   const drawPlat = tiles("cr_tiles", "cr_plat", [["twitch", "Twitch", "", "twitch"], ["youtube", "YouTube", "", "youtube"]]);
@@ -3023,6 +3024,8 @@ async function settings() {
      desc: "Choose which kinds of moments the clipper looks for, add your own ideas, and say what it must never clip. The AI is given exactly these instructions."},
     {id: "audme", icon: "globe", title: "Creators & languages",
      desc: "Choose which creators' clips you want: the country they live in and the language of their streams. Every account sets its own, and it only applies to your own videos."},
+    {id: "src", icon: "clips", title: "Clip sources",
+     desc: "Choose where your videos look for clips: YouTube and / or Twitch. Every account sets its own, and it only applies to your own videos."},
     {id: "mail", icon: "mail", title: "Email alerts",
      desc: "Get an email when a video is uploaded, with Approve and Decline buttons. Failed scheduled runs are emailed too.",
      keys: ["SMTP_HOST", "SMTP_PORT", "SMTP_SECURITY", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM", "NOTIFY_TO", "PUBLIC_BASE_URL"],
@@ -3030,7 +3033,7 @@ async function settings() {
     {id: "music", icon: "music", title: "Music",
      desc: "Royalty-free tracks used under the AI commentary. Only use tracks you have the licence for (for example the YouTube Audio Library)."},
   ];
-  if (!isOwner) SECTIONS.splice(0, SECTIONS.length, ...SECTIONS.filter(x => ["prefs", "yt", "clip", "audme"].includes(x.id)));   // members never see server-wide settings
+  if (!isOwner) SECTIONS.splice(0, SECTIONS.length, ...SECTIONS.filter(x => ["prefs", "yt", "clip", "audme", "src"].includes(x.id)));   // members never see server-wide settings
   const META = {
     TWITCH_CLIENT_ID: ["Twitch client ID", "Free at dev.twitch.tv/console. Needed for Twitch clips and live streams."],
     TWITCH_CLIENT_SECRET: ["Twitch client secret", ""],
@@ -3113,7 +3116,7 @@ async function settings() {
     paintTabs(s);
     $("#spanes").innerHTML = SECTIONS.map(sec => `<div class="card spane" data-p="${sec.id}" ${state.tab === sec.id ? "" : "hidden"}>
       <h2>${svg(sec.icon).replace("<svg", '<svg width="18" height="18" style="stroke:currentColor;fill:none;stroke-width:1.8"')}${sec.title}</h2><p class="secdesc">${sec.desc}</p>
-      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>
+      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>
         <div class="savebar"><button class="pri" data-save>Save changes</button>${sec.id === "mail" ? `<button id="mt">Send test email</button><span class="muted" id="mres"></span>` : ""}
         <span class="muted">Stored in the local .env file.</span></div>`
       : `<div class="row"><input type="file" id="mf" accept=".mp3,.wav,.m4a,.ogg,.flac" class="grow"><button id="mu" class="pri">Upload track</button></div><div id="mlist" style="margin-top:14px"></div>`}
@@ -3133,7 +3136,7 @@ async function settings() {
       try { const r = await api("/api/email/test", {method: "POST"}); $("#mres").innerHTML = `<span style="color:var(--ok)">✔</span> ${esc(r.message)}`; }
       catch (e) { $("#mres").innerHTML = `<span style="color:var(--bad)">✖</span> ${esc(e.message)}`; }
     });
-    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); if (isOwner) { loadPricing(); loadYtx(); }
+    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); if (isOwner) { loadPricing(); loadYtx(); }
     if ($("#mu")) {
       $("#mu").onclick = guard(async () => {
         const f = $("#mf").files[0]; if (!f) throw new Error("Choose a file first");
@@ -3286,6 +3289,24 @@ async function settings() {
     refresh();
   });
   /* ---- Creators & languages: every account chooses which creators' clips it wants (their country, the language of their streams) */
+  const loadSrc = guard(async () => {
+    const box = $("#srccfg"); if (!box) return;
+    const d = await api("/api/sources");
+    if (!box.isConnected) return;                        // the page was drawn again while this was loading
+    box.className = "";
+    const on = new Set(d.mine);
+    const cap = x => ({youtube: "YouTube", twitch: "Twitch", kick: "Kick"})[x] || x;
+    const needKeys = c => c.id === "twitch" && d.owner && !d.twitch_keys;
+    box.innerHTML = `<div class="audnote">Choose where your videos look for clips. This is only for your own videos: every account sets its own. If you pick a place on the Create page that is switched off here, you are told so (it is never changed quietly).</div>` +
+      d.choices.map(c => `<div class="row" style="gap:14px;align-items:center;margin:14px 0"><label class="switch"><input type="checkbox" data-src="${c.id}" ${on.has(c.id) ? "checked" : ""} ${c.works ? "" : "disabled"}><span></span></label><div class="grow" style="min-width:0"><b>${esc(c.name)}</b>${c.works ? "" : ` <span class="st warn">Not available yet</span>`}${needKeys(c) ? ` <span class="st warn">Needs Twitch keys</span>` : ""}<div class="help">${esc(c.note)}${needKeys(c) ? " Add its keys in Accounts &amp; keys first." : ""}</div></div></div>`).join("") +
+      `<div class="row" style="gap:12px;align-items:center"><button class="pri" id="src_save">Save sources</button><span class="muted" id="src_msg"></span></div>`;
+    box.querySelector("#src_save").onclick = guard(async () => {
+      const picked = [...box.querySelectorAll("input[data-src]:checked")].map(i => i.dataset.src);
+      if (!picked.length) throw new Error("Choose at least one place to look for clips");
+      await api("/api/sources", {method: "PUT", body: {sources: picked}}); toast("Clip sources saved");
+      box.querySelector("#src_msg").textContent = "Saved: " + picked.map(cap).join(" + ");
+    });
+  });
   const loadAud = guard(async () => {
     const box = $("#audcfg"); if (!box) return;
     const d = await api("/api/audience"), cat = d.catalog;

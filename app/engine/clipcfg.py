@@ -48,6 +48,34 @@ def _clean_lines(v, limit: int = 12, width: int = 140) -> List[str]:
     return out[:limit]
 
 
+SOURCE_CHOICES = ("youtube", "twitch")      # where automatic search can look (Kick has no way to search clips by game)
+
+
+def sources(uid: Optional[str] = None) -> List[str]:
+    """Where THIS account's videos look for clips (Settings -> Clip sources): everything that can be searched until the account chooses."""
+    try:
+        from app.models import Setting
+        s = (Setting.find_one(id=_doc_id(uid)) or {}).get("sources")
+        if isinstance(s, list):
+            keep = [x for x in SOURCE_CHOICES if x in s]
+            if keep:
+                return keep
+    except Exception:
+        pass
+    return list(SOURCE_CHOICES)
+
+
+def save_sources(uid, items) -> List[str]:
+    if not isinstance(items, list):
+        raise ValueError("sources must be a list")
+    keep = [x for x in SOURCE_CHOICES if x in [str(i).lower() for i in items]]
+    if not keep:
+        raise ValueError("Choose at least one place to look for clips.")
+    from app.models import Setting
+    Setting.set_fields(_doc_id(uid), {"sources": keep}, upsert=True)
+    return keep
+
+
 def _doc_id(uid: Optional[str] = None) -> str:
     u = uid or os.environ.get("CLIPSTUDIO_USER_ID")
     return f"clipping:{u}" if u else "clipping"

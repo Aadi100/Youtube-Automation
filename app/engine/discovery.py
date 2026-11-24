@@ -596,6 +596,13 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
     if creator:                              # a creator chosen by name: only their clips (not the game search, the bank or live streams)
         wanted = []
     from app.engine import clipcfg
+    # Where this account wants its clips to come from (Settings -> Clip sources). Asking for a place the account switched off is refused
+    # with a clear message, never quietly changed to another one.
+    allowed = clipcfg.sources()
+    if not creator:
+        if source in ("twitch", "youtube") and source not in allowed:
+            raise RuntimeError(f"{ {'twitch': 'Twitch', 'youtube': 'YouTube'}[source] } is switched off in your Settings -> Clip sources. Switch it on there, or choose another source.")
+        wanted = [s for s in wanted if s in allowed]
     _w = clipcfg.want()
     if _w:
         print(f"[Want] this video: {clipcfg.want_summary(_w)} ({'only this' if _w['strict'] else 'prefer this'})", flush=True)
@@ -633,7 +640,7 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
     if live_n:
         try:
             from app.engine import live_scanner
-            for item in live_scanner.scan_live(game, live_n, LIVE_WATCH_MINUTES, LIVE_STREAMS):
+            for item in live_scanner.scan_live(game, live_n, LIVE_WATCH_MINUTES, LIVE_STREAMS, platforms=allowed):
                 Clip.save_downloaded(item)
                 results.append(item)
         except Exception as e:

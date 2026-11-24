@@ -42,6 +42,33 @@ def h_audience_put(h):
     h.send_json(200, _audience_payload(h))
 
 
+def _sources_payload(h) -> dict:
+    from app.engine import clipcfg
+    from app.utils.envfile import read_env
+    env = read_env()
+    keys = bool(env.get("TWITCH_CLIENT_ID") and env.get("TWITCH_CLIENT_SECRET"))
+    return {"mine": clipcfg.sources(h.uid), "owner": h.is_owner(), "twitch_keys": keys if h.is_owner() else True,
+            "choices": [
+                {"id": "youtube", "name": "YouTube", "works": True, "note": "Videos, highlights and live streams. Needs no key."},
+                {"id": "twitch", "name": "Twitch", "works": True, "note": "Clips and live streams."},
+                {"id": "kick", "name": "Kick", "works": False,
+                 "note": "Kick has no way to search clips by game, so the studio cannot look there by itself yet. You can still paste a Kick link in the Clip Finder or the Editor."}]}
+
+
+def h_sources(h):
+    """Where THIS person's videos look for clips: YouTube and / or Twitch (every account sets its own)."""
+    h.send_json(200, _sources_payload(h))
+
+
+def h_sources_put(h):
+    from app.engine import clipcfg
+    try:
+        clipcfg.save_sources(h.uid, h.body_json().get("sources"))
+    except ValueError as e:
+        return h.send_json(400, {"error": str(e)})
+    h.send_json(200, _sources_payload(h))
+
+
 def h_clips(h):
     docs = Clip.find_all(user_id=h.uid, order=("-created_at",), limit=300)
     h.send_json(200, [clean(x) | {"file_exists": Path(x.get("path") or "").is_file()} for x in docs])
@@ -68,6 +95,8 @@ ROUTES = [
     (r"/api/clipping", "PUT", h_clipping_put),
     (r"/api/audience", "GET", h_audience),
     (r"/api/audience", "PUT", h_audience_put),
+    (r"/api/sources", "GET", h_sources),
+    (r"/api/sources", "PUT", h_sources_put),
     (r"/api/clips", "GET", h_clips),
     (r"/api/clips/([\w-]+)", "DELETE", h_clip_delete),
 ]

@@ -237,11 +237,13 @@ def _cut(rec: Path, peak: int, out: Path) -> None:
 
 # ------------------------------------------------------------------ public entry point
 def scan_live(game: Dict, want: int = 1, watch_minutes: float = 8, max_streams: int = 4,
-              min_score: Optional[float] = None) -> List[Dict]:
+              min_score: Optional[float] = None, platforms=("twitch", "youtube")) -> List[Dict]:
     """Returns clip dicts like discovery.download_candidate results: {path, streamer, title, views, clip_id, url,
     channel_url, source, game_id}. Empty list when nothing worth clipping happened."""
     lists, errors = [], []
     for name, fn in (("twitch", lambda: twitch_live_streams(game)), ("youtube", lambda: youtube_live_streams(game.get("youtube_query", "")))):
+        if name not in platforms:                 # the account switched this place off (Settings -> Clip sources)
+            continue
         try:
             found = [s for s in fn() if not _recently_scanned(s)]
             _log(f"{game['name']} / {name}: {len(found)} live stream(s) available")
