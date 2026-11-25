@@ -31,7 +31,11 @@ DEFAULT_PRICING = {
     "search_per_video": 0.5,         # finding the clip: search, sound analysis, picking the moment (charged only when a video is made)
     "render_short": 0.5,             # rendering a Short on the server (cutting, fades, effects)
     "render_compilation": 3.0,       # rendering a compilation
-    "youtube_source": 0.3,           # extra for a clip that came from YouTube (covers the proxy data); 0 for other sources
+    "youtube_source": 1.0,           # searching: every clip found on YouTube (the search quota and the proxy data)
+    "twitch_source": 0.4,            # searching: every clip found on Twitch
+    "kick_source": 0.4,              # searching: every clip found on Kick
+    "email_send": 0.3,               # every email sent to a member
+    "server_per_video": 1.0,         # the server itself (CPU, disk, bandwidth, email service, domain, certificate): charged for every video made
     "finder_scan": 0.5,              # one Clip Finder scan (CPU and bandwidth)
     "editor_render": 0.3,            # one render in the Editor
     "research_run": 4.0,             # one clipping-research run (the search costs more than normal AI text)
@@ -163,8 +167,10 @@ def price_event(e: Dict, p: Dict) -> float:
         return float(e.get("units") or 0) * p["search_per_video"]
     if k == "render":
         return float(e.get("units") or 0) * (p["render_compilation"] if prov == "compilation" else p["render_short"])
+    if k == "server":
+        return float(e.get("units") or 0) * p["server_per_video"]
     if k == "source":
-        return float(e.get("units") or 0) * p["youtube_source"]
+        return float(e.get("units") or 0) * float(p.get({"twitch": "twitch_source", "kick": "kick_source"}.get(prov, "youtube_source")) or 0)
     return 0.0
 
 
@@ -175,7 +181,7 @@ _LINES = {
     ("tts", ""): ("Narrator voice", "characters"), ("whisper", ""): ("Captions (speech to text)", "minutes"),
     ("safety_local", ""): ("Local safety check", "clips"),
     ("search", ""): ("Finding the clip", "clips"), ("render", "short"): ("Video rendering", "videos"), ("render", "compilation"): ("Video rendering", "videos"),
-    ("source", "youtube"): ("Clip sourcing", "clips"),
+    ("server", ""): ("Server usage", "videos"), ("source", "youtube"): ("Clip search (YouTube)", "clips"), ("source", "twitch"): ("Clip search (Twitch)", "clips"), ("source", "kick"): ("Clip search (Kick)", "clips"),
 }
 
 
@@ -201,8 +207,10 @@ def member_label(label: str) -> Tuple[str, str]:
         return prefix + "Finding the clip", ""
     if "video rendering" in low:
         return prefix + "Making the video", ""
-    if "clip sourcing" in low:
-        return prefix + "Clip sourcing", ""
+    if "server usage" in low:
+        return prefix + "Server usage", ""
+    if "clip search" in low:
+        return prefix + "Searching for clips", ""
     if "upload" in low:
         return prefix + "Upload to YouTube", "upload"
     return prefix + "Other", ""
@@ -266,6 +274,7 @@ ACTIONS = {   # price key -> (usage kind, provider, ledger reason, what to call 
     "finder_scan": ("scan", "finder", "Clip Finder scan", "A Clip Finder scan"),
     "editor_render": ("edit", "editor", "Editor render", "An Editor render"),
     "research_run": ("research", "run", "Research run", "A research run"),
+    "email_send": ("email", "send", "Email sent to you", "An email"),
 }
 
 

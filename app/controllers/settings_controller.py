@@ -92,6 +92,48 @@ def h_ytaccess_test(h):
     h.send_json(200, {**yt_access.test(), "status": yt_access.status()})
 
 
+# ---- Email templates: how the emails members receive look and read (Settings -> Email templates)
+def h_tpl(h):
+    from app.services import email_template_service as T
+    h.send_json(200, T.overview())
+
+
+def h_tpl_put(h):
+    from app.services import email_template_service as T
+    b = h.body_json()
+    h.send_json(200, T.save(b.get("scope") or "default", b.get("fields") or {}))
+
+
+def h_tpl_delete(h):
+    from app.services import email_template_service as T
+    h.send_json(200, T.reset(h.q.get("scope") or "default"))
+
+
+def h_tpl_preview(h):
+    """What an email would look like with the fields typed now (nothing is saved or sent)."""
+    from app.services import email_template_service as T
+    b = h.body_json()
+    kind = b.get("scope") if b.get("scope") not in (None, "", "default") else ""
+    T._clean(b.get("fields") or {})
+    subject, text, page = T.render(kind, "Your video is ready", "Your Short \"Epic clutch\" was made and is waiting for your check.", "Alex", "https://example.com/app#/videos", b.get("fields") or {})
+    h.send_json(200, {"subject": subject, "html": page, "text": text})
+
+
+def h_tpl_test(h):
+    """Send the owner one example email with this template (it is not charged)."""
+    from app.models import User
+    from app.services import email_template_service as T
+    from app.models import oid
+    b = h.body_json()
+    kind = b.get("scope") if b.get("scope") not in (None, "", "default") else ""
+    cfg = notify.get_cfg()
+    me = User.find_one(id=oid(h.uid))
+    cfg["to"] = (me or {}).get("email") or cfg["to"]
+    subject, text, page = T.render(kind, "Your video is ready", "This is an example email.", (me or {}).get("name") or "", cfg["base_url"] + "/app", b.get("fields") or {})
+    ok, msg = notify.send_mail(subject, text, page, None, cfg)
+    h.send_json(200 if ok else 400, {"ok": ok, "message": msg} if ok else {"error": msg})
+
+
 def h_music(h):
     h.send_json(200, [{"name": p.name, "mb": round(p.stat().st_size / 1e6, 1)}
                       for p in sorted(MUSIC_DIR.iterdir()) if p.suffix.lower() in MUSIC_EXT])
@@ -133,11 +175,16 @@ ROUTES = [
     (r"/api/yt-access", "GET", h_ytaccess),
     (r"/api/yt-access/proxy", "DELETE", h_ytaccess_proxy_delete),
     (r"/api/yt-access/test", "POST", h_ytaccess_test),
+    (r"/api/email-templates", "GET", h_tpl),
+    (r"/api/email-templates", "PUT", h_tpl_put),
+    (r"/api/email-templates", "DELETE", h_tpl_delete),
+    (r"/api/email-templates/preview", "POST", h_tpl_preview),
+    (r"/api/email-templates/test", "POST", h_tpl_test),
     (r"/api/music", "GET", h_music),
     (r"/api/music", "POST", h_music_upload),
     (r"/api/music", "DELETE", h_music_delete),
 ]
 OWNER_ONLY.update({h_claude_models, h_settings,h_settings_put, h_email_test, h_music_upload, h_music_delete,
-                   h_ytaccess, h_ytaccess_proxy_delete, h_ytaccess_test})
+                   h_ytaccess, h_ytaccess_proxy_delete, h_ytaccess_test, h_tpl, h_tpl_put, h_tpl_delete, h_tpl_preview, h_tpl_test})
 bp = Blueprint("settings", __name__)
 register(bp, ROUTES)

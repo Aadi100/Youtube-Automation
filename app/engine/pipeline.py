@@ -88,13 +88,15 @@ def _bill_finding(found, mode: str, own: bool) -> None:
     if own or not found:
         return
     _usage("search", "studio", 1)
-    n = sum(1 for c in found if c.get("source") == "youtube")
-    if n:
-        _usage("source", "youtube", n)
+    for plat in ("youtube", "twitch", "kick"):                  # every clip found is paid for by the place it was found
+        n = sum(1 for c in found if (c.get("source") or "") == plat)
+        if n:
+            _usage("source", plat, n)
 
 
 def _bill_render(mode: str) -> None:
     _usage("render", "compilation" if "compilation" in mode else "short", 1)
+    _usage("server", "", 1)                                       # the server's share of every video (also a video made from the member's own clip)
 
 
 def run_short_pipeline(

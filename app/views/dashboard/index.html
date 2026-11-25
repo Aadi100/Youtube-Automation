@@ -2595,8 +2595,9 @@ async function users() {
       ["AI text: tokens charged per 1,000 AI tokens (the AI service reports the real number)", [["gemini_per_1k", "Gemini (text and safety review)"], ["deepseek_per_1k", "DeepSeek"], ["claude_per_1k", "Claude (High thumbnails)"]]],
       ["Images: per image", [["image_free", "Free image service"], ["image_gemini", "Gemini image"]]],
       ["Parts that run on your own server (0 = free)", [["tts_per_1k_chars", "Voice: per 1,000 characters"], ["whisper_per_min", "Captions: per minute of speech"], ["safety_local_per_clip", "Local safety check: per clip"]]],
-      ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["youtube_source", "Extra for a clip from YouTube"]]],
-      ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
+      ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["server_per_video", "Server usage (every video made)"]]],
+    ["Searching for clips: every clip found", [["youtube_source", "YouTube clip"], ["twitch_source", "Twitch clip"], ["kick_source", "Kick clip"]]],
+      ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["email_send", "Each email sent to a member"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
       ["Uploading to YouTube: per upload", [["upload_short", "Short"], ["upload_compilation", "Compilation"]]],
       ["Reserve taken when a video starts (the unused part is returned)", [["hold_short", "Short"], ["hold_compilation", "Compilation"]]],
       ["Members", [["signup_bonus", "Welcome gift for new members (tokens)"], ["daily_uploads", "Uploads per member per day (default)"]]]];
@@ -3032,6 +3033,8 @@ async function settings() {
      desc: "Get an email when a video is uploaded, with Approve and Decline buttons. Failed scheduled runs are emailed too.",
      keys: ["SMTP_HOST", "SMTP_PORT", "SMTP_SECURITY", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM", "NOTIFY_TO", "PUBLIC_BASE_URL"],
      status: ["SMTP_HOST"]},
+    {id: "tpl", icon: "mail", title: "Email templates",
+     desc: "Change how the emails members receive look and read: the subject, heading, message, button and footer. Use one template for all emails, or give a kind of email its own."},
     {id: "music", icon: "music", title: "Music",
      desc: "Royalty-free tracks used under the AI commentary. Only use tracks you have the licence for (for example the YouTube Audio Library)."},
   ];
@@ -3118,7 +3121,7 @@ async function settings() {
     paintTabs(s);
     $("#spanes").innerHTML = SECTIONS.map(sec => `<div class="card spane" data-p="${sec.id}" ${state.tab === sec.id ? "" : "hidden"}>
       <h2>${svg(sec.icon).replace("<svg", '<svg width="18" height="18" style="stroke:currentColor;fill:none;stroke-width:1.8"')}${sec.title}</h2><p class="secdesc">${sec.desc}</p>
-      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>
+      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>
         <div class="savebar"><button class="pri" data-save>Save changes</button>${sec.id === "mail" ? `<button id="mt">Send test email</button><span class="muted" id="mres"></span>` : ""}
         <span class="muted">Stored in the local .env file.</span></div>`
       : `<div class="row"><input type="file" id="mf" accept=".mp3,.wav,.m4a,.ogg,.flac" class="grow"><button id="mu" class="pri">Upload track</button></div><div id="mlist" style="margin-top:14px"></div>`}
@@ -3138,7 +3141,7 @@ async function settings() {
       try { const r = await api("/api/email/test", {method: "POST"}); $("#mres").innerHTML = `<span style="color:var(--ok)">✔</span> ${esc(r.message)}`; }
       catch (e) { $("#mres").innerHTML = `<span style="color:var(--bad)">✖</span> ${esc(e.message)}`; }
     });
-    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); if (isOwner) { loadPricing(); loadYtx(); }
+    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); if (isOwner) { loadPricing(); loadYtx(); loadTpl(); }
     if ($("#mu")) {
       $("#mu").onclick = guard(async () => {
         const f = $("#mf").files[0]; if (!f) throw new Error("Choose a file first");
@@ -3146,6 +3149,47 @@ async function settings() {
       });
       await loadM();
     }
+  });
+  /* ---- Email templates (owner): how the emails members receive look and read */
+  const loadTpl = guard(async () => {
+    const box = $("#tplcfg"); if (!box) return;
+    const o = await api("/api/email-templates");
+    if (!box.isConnected) return;
+    box.classList.remove("muted");
+    const q = s => box.querySelector(s);
+    box.innerHTML = `
+      <div class="field"><label>Which email</label><select id="tpl_s"><option value="default">All emails (the standard template)</option>${o.kinds.map(k => `<option value="${esc(k.id)}">Only: ${esc(k.name)}</option>`).join("")}</select>
+        <div class="help">Change the wording for all emails, or give one kind of email its own wording. A field you leave empty uses the standard template.</div></div>
+      <div class="help" style="margin:8px 0 14px">Words you can use (they are filled in when the email is sent): ${o.placeholders.map(p => `<code>${esc(p)}</code>`).join(" ")}. Every member who gets an email pays a small token fee, set in Pricing &amp; costs.</div>
+      <div id="tpl_f"></div>
+      <div class="row" style="margin-top:14px;gap:10px;flex-wrap:wrap"><button class="pri" id="tpl_sv">Save this template</button><button id="tpl_rs">Back to the standard wording</button><button id="tpl_t">Send me a test email</button><span class="muted" id="tpl_r"></span></div>
+      <h3 style="margin:18px 0 6px">Preview</h3><div class="help" id="tpl_sub" style="margin-bottom:6px"></div>
+      <iframe id="tpl_pv" sandbox="" style="width:100%;height:300px;border:1px solid var(--line);border-radius:10px;background:#fff"></iframe>`;
+    const scope = () => q("#tpl_s").value;
+    const mine = () => scope() === "default" ? (o.default || {}) : ((o.by_kind || {})[scope()] || {});
+    const paint = () => {
+      const inherit = scope() === "default" ? o.standard : {...o.standard, ...(o.default || {})};
+      q("#tpl_f").innerHTML = o.fields.map(f => `<div class="field"><label>${esc(f.label)}</label>${f.big
+        ? `<textarea data-tf="${f.k}" rows="3" maxlength="${f.max}" placeholder="${esc(inherit[f.k] || "")}">${esc(mine()[f.k] || "")}</textarea>`
+        : `<input data-tf="${f.k}" maxlength="${f.max}" value="${esc(mine()[f.k] || "")}" placeholder="${esc(inherit[f.k] || "")}">`}<div class="help">${esc(f.help)}</div></div>`).join("");
+      q("#tpl_f").querySelectorAll("[data-tf]").forEach(i => i.oninput = preview);
+      preview();
+    };
+    const fields = () => { const r = {}; q("#tpl_f").querySelectorAll("[data-tf]").forEach(i => r[i.dataset.tf] = i.value); return r; };
+    let timer = null;
+    const preview = () => { clearTimeout(timer); timer = setTimeout(async () => {
+      try { const r = await api("/api/email-templates/preview", {method: "POST", body: {scope: scope(), fields: fields()}}); q("#tpl_sub").innerHTML = "Subject: <b>" + esc(r.subject) + "</b>"; q("#tpl_pv").srcdoc = r.html; }
+      catch (e) { q("#tpl_sub").textContent = e.message; }
+    }, 250); };
+    q("#tpl_s").onchange = paint;
+    q("#tpl_sv").onclick = guard(async () => { const r = await api("/api/email-templates", {method: "PUT", body: {scope: scope(), fields: fields()}}); Object.assign(o, r); toast("Template saved"); paint(); });
+    q("#tpl_rs").onclick = guard(async () => { const r = await api("/api/email-templates?scope=" + encodeURIComponent(scope()), {method: "DELETE"}); Object.assign(o, r); toast("Back to the standard wording"); paint(); });
+    q("#tpl_t").onclick = guard(async () => {
+      q("#tpl_r").textContent = "Sending…";
+      try { const r = await api("/api/email-templates/test", {method: "POST", body: {scope: scope(), fields: fields()}}); q("#tpl_r").innerHTML = `<span style="color:var(--ok)">✔</span> ${esc(r.message)}`; }
+      catch (e) { q("#tpl_r").innerHTML = `<span style="color:var(--bad)">✖</span> ${esc(e.message)}`; }
+    });
+    paint();
   });
   /* ---- YouTube access (owner): the proxy that lets YouTube talk to this server, and a Test button */
   const loadYtx = guard(async () => {
@@ -3185,8 +3229,9 @@ async function settings() {
     ["AI text, per 1,000 AI tokens", [["gemini_per_1k", "Gemini (text and safety review)"], ["deepseek_per_1k", "DeepSeek (text)"], ["claude_per_1k", "Claude (thumbnails)"]]],
     ["Pictures, each", [["image_free", "Free image service"], ["image_gemini", "Gemini picture"]]],
     ["Parts that run on your own computer (0 = free)", [["tts_per_1k_chars", "Voice, per 1,000 characters"], ["whisper_per_min", "Captions, per minute of speech"], ["safety_local_per_clip", "Local safety check, per clip"]]],
-    ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["youtube_source", "Extra for a clip from YouTube"]]],
-    ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
+    ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["server_per_video", "Server usage (every video made)"]]],
+    ["Searching for clips: every clip found", [["youtube_source", "YouTube clip"], ["twitch_source", "Twitch clip"], ["kick_source", "Kick clip"]]],
+    ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["email_send", "Each email sent to a member"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
     ["Uploading to YouTube, each", [["upload_short", "Short"], ["upload_compilation", "Compilation"]]],
     ["Reserve taken when a video starts (the unused part comes back)", [["hold_short", "Short"], ["hold_compilation", "Compilation"]]],
     ["Members", [["signup_bonus", "Welcome gift (tokens)"], ["daily_uploads", "Uploads per member per day"]]]];
@@ -3256,7 +3301,7 @@ async function settings() {
       /* a typical video */
       const T = o.typical, fix = (kind, label) => {
         const t = T[kind], gem = t.gemini_tokens, ds = t.deepseek_tokens, cl = t.claude_tokens || 0, extra = +(($("#px_pics_" + kind) || {}).value || 0);
-        const tokens = gem / 1000 * p.gemini_per_1k + ds / 1000 * p.deepseek_per_1k + cl / 1000 * p.claude_per_1k + (t.images || 0) * p.image_free + extra * p.image_gemini + (kind === "short" ? p.safety_local_per_clip : p.safety_local_per_clip * 4) + p.search_per_video + (kind === "short" ? p.render_short : p.render_compilation);
+        const tokens = gem / 1000 * p.gemini_per_1k + ds / 1000 * p.deepseek_per_1k + cl / 1000 * p.claude_per_1k + (t.images || 0) * p.image_free + extra * p.image_gemini + (kind === "short" ? p.safety_local_per_clip : p.safety_local_per_clip * 4) + p.search_per_video + p.server_per_video + (kind === "short" ? p.render_short : p.render_compilation);
         const up = kind === "short" ? p.upload_short : p.upload_compilation, pay = (tokens + up) * tu;
         const real = gem / 1000 * blend(c, "gemini", "gemini") + ds / 1000 * blend(c, "deepseek", "deepseek") + cl / 1000 * blend(c, "claude", "claude") + (t.images || 0) * c.image_free_usd + extra * c.image_gemini_usd;
         const profit = pay - real;

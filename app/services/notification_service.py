@@ -40,7 +40,7 @@ def _pref(uid, kind: str) -> Dict[str, bool]:
     return {"app": bool(mine.get("app", app_on)), "email": bool(mine.get("email", mail_on))}
 
 
-def _email(uid: str, title: str, body: str, link: str) -> None:
+def _email(uid: str, title: str, body: str, link: str, kind: str = "") -> None:
     try:
         from app.services import notify_service as mail
         user = User.find_one(id=oid(uid))
@@ -51,11 +51,12 @@ def _email(uid: str, title: str, body: str, link: str) -> None:
         if not (cfg["host"] and cfg["from"]):
             return
         url = cfg["base_url"] + "/app" + (link if link.startswith("#") else "")
-        text = f"{title}\n\n{body}\n\nOpen Clip Studio: {url}\n\nYou can change which emails you get in Profile > Notifications."
-        page = (f'<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;color:#1a2030"><h2 style="margin:0 0 8px">{html.escape(title)}</h2>'
-                f'<p style="margin:0 0 16px">{html.escape(body)}</p>{mail._button(url, "Open Clip Studio", "#ff7a18")}'
-                f'<p style="color:#8d98ad;font-size:12px;margin-top:20px">You can change which emails you get in Profile &rarr; Notifications.</p></div>')
-        mail.send_mail(f"Clip Studio: {title}", text, page, None, cfg)
+        from app.services import email_template_service as templates
+        subject, text, page = templates.render(kind, title, body, user.get("name") or "", url)      # the owner's template (Settings -> Email templates)
+        ok, _msg = mail.send_mail(subject, text, page, None, cfg)
+        if ok:                                         # an email that really went out is paid for by the member (never the owner)
+            from app.services import token_service as tokens
+            tokens.charge_action(uid, "email_send")
     except Exception as e:
         print(f"[notify] email failed: {e}")
 
@@ -77,7 +78,7 @@ def notify(uid, kind: str, title: str, body: str = "", link: str = "", level: st
             nid = str(Notification(user_id=uid, kind=kind, title=title[:140], body=(body or "")[:400], link=(link or "")[:120], level=level,
                                    key=key, read=False, created_at=now()).save().id)
         if pref["email"]:
-            threading.Thread(target=_email, args=(uid, title[:140], body or "", link or ""), daemon=True).start()
+            threading.Thread(target=_email, args=(uid, title[:140], body or "", link or "", kind), daemon=True).start()
         return nid
     except Exception as e:
         print(f"[notify] could not notify: {e}")

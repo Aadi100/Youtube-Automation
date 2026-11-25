@@ -19,7 +19,8 @@ SERVICES = {
     ("safety_local", "nudenet"): ("Local safety check", "clips"), ("upload", "youtube"): ("Uploads to YouTube", "uploads"),
     ("search", ""): ("Finding the clip", "clips"), ("search", "studio"): ("Finding the clip", "clips"),
     ("render", "short"): ("Rendering a Short", "videos"), ("render", "compilation"): ("Rendering a compilation", "videos"),
-    ("source", "youtube"): ("Clip sourcing (YouTube extra)", "clips"),
+    ("source", "youtube"): ("Clip search: YouTube", "clips"), ("source", "twitch"): ("Clip search: Twitch", "clips"), ("source", "kick"): ("Clip search: Kick", "clips"),
+    ("email", "send"): ("Emails sent to members", "emails"), ("server", ""): ("Server usage", "videos"), ("server", "studio"): ("Server usage", "videos"),
     ("scan", "finder"): ("Clip Finder scans", "scans"), ("edit", "editor"): ("Editor renders", "renders"), ("research", "run"): ("Research runs", "runs"),
     ("storage", "disk"): ("Extra storage", "GB-days"),
 }
