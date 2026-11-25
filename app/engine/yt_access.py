@@ -8,8 +8,6 @@ YouTube refuses many cloud / datacenter addresses with "Sign in to confirm you'r
     trusts such an address, so nothing has to be signed in and nothing expires,
   * a Test button shows whether it works now, and the owner is told (dashboard + email, at most every 6 hours) when it stops working.
 
-Cookies are deliberately NOT used. A login exported from a browser is cancelled by YouTube within hours once it is used from another
-place, and it puts the Google account at risk, so it can never be a lasting fix. A cookie file left behind by an older version is deleted.
 """
 import contextlib
 import os
@@ -17,7 +15,6 @@ import re
 import time
 from typing import Dict, Iterator, List, Optional
 
-from app.config import STATE_DIR, TEMP_DIR
 from app.utils.envfile import read_env
 
 BLOCK_MINUTES = 30                      # how long Settings keeps showing "blocked" after a refusal (every new run still tries YouTube again)
@@ -47,30 +44,9 @@ def proxy() -> str:
     return (os.environ.get("YTDLP_PROXY") or read_env().get("YTDLP_PROXY", "")).strip()
 
 
-def _forget_old_cookies() -> None:
-    """Older versions kept a cookie file here. Cookies are not used any more: the file (and any temporary copy) is deleted."""
-    try:
-        (STATE_DIR / "youtube-cookies.txt").unlink(missing_ok=True)
-        for p in TEMP_DIR.glob("ytck_*.txt"):
-            p.unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
-_cleaned = False
-
-
-def _clean_once() -> None:
-    global _cleaned
-    if not _cleaned:
-        _cleaned = True
-        _forget_old_cookies()
-
-
 @contextlib.contextmanager
 def ytdlp_args() -> Iterator[List[str]]:
     """Extra yt-dlp options for a YouTube call: the proxy, when there is one."""
-    _clean_once()
     p = proxy()
     yield ["--proxy", p] if p else []
 
@@ -113,6 +89,9 @@ def _ask_owner() -> None:
     """Tell the owner (in the dashboard and by email) that YouTube is refusing the server and what to do. At most once every 6 hours,
     so a scheduled run that fails ten times does not send ten emails."""
     try:
+        from app.engine import clipcfg
+        if "youtube" not in clipcfg.sources():       # the running account switched YouTube off: a refusal is not news to anyone
+            return
         from app.models import System, User, UserPrefs
         sent = float(((System.find_one(id="alerts") or {}).get("sent") or {}).get("ytaccess", 0))
         if time.time() - sent < 6 * 3600:
@@ -154,7 +133,6 @@ def blocked_seconds() -> int:
 
 
 def status() -> Dict:
-    _clean_once()
     d = _doc()
     px = proxy()
     return {"blocked": blocked_seconds() > 0, "blocked_minutes": (blocked_seconds() + 59) // 60,

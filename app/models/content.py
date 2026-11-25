@@ -146,9 +146,10 @@ class Clip(Doc):
         return n
 
     @classmethod
-    def banked_for(cls, game_id: Optional[str], limit: int = 5, uid: Optional[str] = None) -> List[Dict]:
-        """Best banked moments of this member for a game first (highest score)."""
-        return cls.find_all(status="banked", game_id=game_id, order=("-score", "created_at"), limit=limit, **scope(uid))
+    def banked_for(cls, game_id: Optional[str], limit: int = 5, uid: Optional[str] = None, sources: Optional[List[str]] = None) -> List[Dict]:
+        """Best banked moments of this member for a game first (highest score). `sources`: only moments from these places (youtube / twitch)."""
+        extra = {"source__in": list(sources)} if sources else {}
+        return cls.find_all(status="banked", game_id=game_id, order=("-score", "created_at"), limit=limit, **extra, **scope(uid))
 
     @classmethod
     def bank_size(cls, uid: Optional[str] = None) -> int:

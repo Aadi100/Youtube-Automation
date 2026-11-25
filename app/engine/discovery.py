@@ -485,7 +485,7 @@ def download_candidate(c: Dict, out_dir: Path = INPUT_DIR, game_name: str = "", 
 
 def _from_bank(game: Dict, count: int) -> List[Dict]:
     """Use moments saved earlier (best score first) before searching for anything new."""
-    from app.engine import safety
+    from app.engine import clipcfg, safety
     try:
         dropped = Clip.expire_banked()
         if dropped:
@@ -493,7 +493,9 @@ def _from_bank(game: Dict, count: int) -> List[Dict]:
     except Exception:
         pass
     found: List[Dict] = []
-    for doc in Clip.banked_for(game.get("id"), limit=count * 3):
+    allowed = clipcfg.sources()          # Settings -> Clip sources: a saved moment from a place the account switched off is not touched (no download, no request)
+    docs = Clip.banked_for(game.get("id"), limit=count * 3, sources=allowed)       # the places that are on are chosen in the query, so none of them is hidden behind the others
+    for doc in docs:
         if len(found) >= count:
             break
         cid, path = doc["_id"], None
