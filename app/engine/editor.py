@@ -315,14 +315,16 @@ def build_ass(path: Path, W: int, H: int, segs: List[List[float]], words: Option
         body = t["text"].replace("{", "").replace("}", "").replace("\\", "")
         for oa, ob in to_output(segs, t["t0"], t["t1"]):
             lines.append(f"Dialogue: 1,{format_timestamp(oa)},{format_timestamp(ob)},UserText,,0,0,0,,{{\\an5\\pos({int(t['x'] * W)},{int(t['y'] * H)})\\fs{int(t['size'] * (W / 1080 if H >= W else W / 1920 * 1.6))}\\c{_ass_color(t['color'])}}}{body}")
-    out = TEMP_DIR / f"{path.stem}_edit.ass"
+    from app.engine.video_processor import safe_name
+    out = TEMP_DIR / f"{safe_name(path.stem)}_edit.ass"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines), encoding="utf-8")
     return out
 
 
 def _esc(p: Path) -> str:
-    return str(p.resolve()).replace("\\", "/").replace(":", "\\:")
+    from app.engine.video_processor import escape_ffmpeg_path
+    return escape_ffmpeg_path(p)
 
 
 def _cover(sw: int, sh: int, W: int, H: int) -> Tuple[int, int]:

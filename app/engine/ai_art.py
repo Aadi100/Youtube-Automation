@@ -108,13 +108,13 @@ def _record_image(provider: str) -> None:
     UsageEvent.record("image", provider=provider, task="background", units=1, tokens_in=tin, tokens_out=tout)
 
 
-def generate_background(game_name: str, mode: str, out: Path, scene: str = "", ref: Optional[Path] = None, tier: Optional[str] = None) -> Optional[Path]:
+def generate_background(game_name: str, mode: str, out: Path, scene: str = "", ref: Optional[Path] = None, tier: Optional[str] = None, prompt: Optional[str] = None) -> Optional[Path]:
     """Returns the path of a generated background image (no text on it), or None.
     This is the Better level: the free image service (or Gemini images when AI_IMAGE_PROVIDER=gemini). The Best level is drawn by thumb_best (FLUX)."""
     LAST_PROVIDER["name"] = None
     if not enabled():
         return None
-    prompt = build_prompt(game_name, scene=scene)
+    prompt = prompt or build_prompt(game_name, scene=scene)      # a prompt written for this video (thumb_prompt) wins over the built-in template
     provider = (os.environ.get("AI_IMAGE_PROVIDER") or "free").strip().lower()
     try:
         if provider == "gemini":

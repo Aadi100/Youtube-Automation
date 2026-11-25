@@ -264,21 +264,31 @@ def generate_thumbnail(
             art = Image.open(background_image).convert("RGB")
         else:
             got = None
+            # what the prompt writer is told about THIS video: the game, the kind of video, the clip's title and what happens, a recipe hint, and what Gemini saw
+            pctx = {**ctx, "scene": scene}
+            if recipe:
+                pctx["recipe_hint"] = f"headline {recipe.get('text_pos', 'top')}, accent {recipe.get('accent')}, looks {', '.join(recipe.get('styles', []))}"
+            analysis = {k: plan.get(k) for k in ("subject", "action", "setting", "mood")} if plan else None
             if tier == "best":                        # FLUX draws it (the headline is part of the picture unless the setting says the studio writes it)
                 from app.engine import thumb_best
                 with_text = not thumb_best.text_by_code()
-                got = thumb_best.draw(thumb_best.build_prompt(game_name or subtext, scene, headline, mode, with_text), art_file, mode)
+                fprompt = thumb_best.prompt_for(pctx, scene, headline, mode, with_text, analysis)       # written for this video (DeepSeek or Gemini), or the template
+                got = thumb_best.draw(fprompt, art_file, mode)
                 if got and with_text and thumb_best.review_on():
                     better = thumb_best.review(got, headline, ctx)           # optional: Gemini checks the printed headline once
                     if better:
-                        again = thumb_best.draw(thumb_best.build_prompt(game_name or subtext, scene, better, mode, True), art_file, mode)
+                        again_prompt = fprompt.replace(f'"{headline}"', f'"{better}"') if f'"{headline}"' in fprompt else thumb_best.build_prompt(game_name or subtext, scene, better, mode, True)
+                        again = thumb_best.draw(again_prompt, art_file, mode)
                         if again:
                             got, flux_headline = again, better
                 if not got:
                     tier = "better"
                     print("[Thumbnail] FLUX could not draw it this time - using Better")
-            if not got:
-                got = generate_background(game_name or subtext, mode, art_file, scene=scene, ref=ref, tier=tier)
+            bprompt = None
+            if not got:                               # Better: the free service also gets a prompt written for this video (no text in it: the studio writes the headline)
+                from app.engine import thumb_prompt
+                bprompt = thumb_prompt.write(pctx, mode, "", False, "better", None) if (tier == "better" and not ref) else None
+                got = generate_background(game_name or subtext, mode, art_file, scene=scene, ref=ref, tier=tier, prompt=bprompt)
             if got:
                 art = Image.open(got).convert("RGB")
                 art.load()
@@ -290,9 +300,9 @@ def generate_thumbnail(
                         try:
                             if tier == "best":
                                 from app.engine import thumb_best
-                                thumb_best.draw(thumb_best.build_prompt(game_name or subtext, scene, flux_headline, mode, not thumb_best.text_by_code()), slot_of(art_stem, i), mode)
+                                thumb_best.draw(fprompt if f'"{flux_headline}"' in fprompt or thumb_best.text_by_code() else fprompt.replace(f'"{headline}"', f'"{flux_headline}"'), slot_of(art_stem, i), mode)
                             else:
-                                generate_background(game_name or subtext, mode, slot_of(art_stem, i), scene=scene, ref=ref, tier=tier)
+                                generate_background(game_name or subtext, mode, slot_of(art_stem, i), scene=scene, ref=ref, tier=tier, prompt=bprompt)
                         except Exception as e:
                             print(f"[Thumbnail] extra picture {i} skipped: {e}")
     except Exception as e:

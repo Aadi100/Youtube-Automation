@@ -90,6 +90,10 @@ def check(plan: Dict, frames: int) -> Dict:
     scene = re.sub(r"[^\w\s,.\-']", "", str(plan.get("scene") or plan.get("art_prompt") or ""))[:260].strip()
     if scene:
         out["scene"] = scene
+    for k in ("subject", "action", "setting", "mood"):          # what Gemini saw in the frames: the prompt writer builds on these
+        v = re.sub(r"[^\w\s,.\-']", "", str(plan.get(k) or ""))[:140].strip()
+        if v:
+            out[k] = v
     out["why"] = str(plan.get("why") or "")[:100]
     return out
 
@@ -152,7 +156,9 @@ def plan(video: Path, ctx: Dict, recipe: Optional[Dict] = None) -> Optional[Dict
             parts += [{"text": f"Frame {i + 1}:"}, _image_part(f["path"])]
         parts.append({"text": facts + f' Pick the best of the {len(fr)} frames. Return JSON: {{"frame": 1-{len(fr)}, "headline": "2-4 words, ALL CAPS, max 20 characters, easy to spell, '
                                        f'not the same as the title", "style": one of {STYLE_IDS}, "text_color": "#RRGGBB", "accent": "#RRGGBB", "scene": "one sentence that describes the thumbnail '
-                                       f'picture: the same game, characters and action as the best frame, made more vivid and dramatic; no text, no real people", "why": "max 12 words"}}'})
+                                       f'picture: the same game, characters and action as the best frame, made more vivid and dramatic; no text, no real people", '
+                                       f'"subject": "who or what is the main subject in the best frame, max 12 words", "action": "what it is doing, max 12 words", '
+                                       f'"setting": "where it happens, max 12 words", "mood": "one or two words: funny, scary, epic, chaotic, tense...", "why": "max 12 words"}}'})
         try:
             raw = _gemini_json(parts, "thumb-plan")
         except Exception as e:
@@ -186,7 +192,17 @@ def review(thumb: Path, headline: str, ctx: Dict) -> Optional[str]:
 
 
 # ------------------------------------------------------------------ the picture (FLUX)
+def prompt_for(ctx: Dict, scene: str, headline: str, mode: str, with_text: bool, analysis: Optional[Dict] = None) -> str:
+    """The prompt FLUX gets for this thumbnail: written for this video by the prompt writer (DeepSeek or Gemini, from the game, the clip's context and
+    what Gemini saw), or the built-in template when the writer is off or fails."""
+    from app.engine import thumb_prompt
+    c = {**(ctx or {}), "scene": scene}
+    written = thumb_prompt.write(c, mode, headline, with_text, "best", analysis)
+    return written or build_prompt(c.get("game") or "", scene, headline, mode, with_text)
+
+
 def build_prompt(game: str, scene: str, headline: str, mode: str, with_text: bool) -> str:
+    """The built-in template (the fallback)."""
     game = re.sub(r"[^\w\s\-:&'.]", "", game or "video game")[:60]
     scene = re.sub(r"[^\w\s,.\-']", "", scene or "")[:260].strip()
     shape = ("tall vertical composition, keep the subject and every word in the middle column" if mode == "9:16"

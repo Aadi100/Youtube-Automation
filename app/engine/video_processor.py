@@ -19,10 +19,19 @@ from app.config import (
 from app.engine.subtitles import transcribe_audio_to_words, generate_ass_from_words
 
 def escape_ffmpeg_path(path: Path) -> str:
-    """Escapes Windows path for FFmpeg filter arguments."""
+    """Escapes a Windows path for FFmpeg filter arguments. It cannot make an apostrophe safe (the filter reads the text twice), so a file that is named
+    after a clip's title must never go through here: use safe_name() for the file name."""
     p_str = str(path.resolve()).replace("\\", "/")
     p_str = p_str.replace(":", "\\:")
     return p_str
+
+
+def safe_name(stem: str) -> str:
+    """A file name part that is the same for the same title but has nothing in it that a filter or a list file could trip over
+    (apostrophes, brackets, commas, quotes...). Used for the temporary subtitle files that are named after the video."""
+    import hashlib
+    import re as _re
+    return (_re.sub(r"[^A-Za-z0-9._-]+", "_", stem)[:60].strip("_") or "clip") + "_" + hashlib.md5(stem.encode("utf-8", "ignore")).hexdigest()[:6]
 
 def get_video_info(video_path: Path) -> Dict:
     """Gets video duration, width, and height using ffprobe."""
@@ -99,7 +108,7 @@ def make_short_blurred(
     if with_subtitles:
         if not words:
             words = transcribe_audio_to_words(input_video, TEMP_DIR)
-        ass_path = TEMP_DIR / f"{input_video.stem}_subs.ass"
+        ass_path = TEMP_DIR / f"{safe_name(input_video.stem)}_subs.ass"
         generate_ass_from_words(words, ass_path)
         
     filtergraph = [
@@ -155,7 +164,7 @@ def make_short_split(
     if with_subtitles:
         if not words:
             words = transcribe_audio_to_words(input_video, TEMP_DIR)
-        ass_path = TEMP_DIR / f"{input_video.stem}_split_subs.ass"
+        ass_path = TEMP_DIR / f"{safe_name(input_video.stem)}_split_subs.ass"
         generate_ass_from_words(words, ass_path)
         
     cam_x, cam_y, cam_w, cam_h = cam_crop.split(":")
@@ -266,7 +275,7 @@ def create_compilation(
     concat_list_file = TEMP_DIR / "concat_list.txt"
     with open(concat_list_file, "w", encoding="utf-8") as f:
         for p in normalized_clips:
-            escaped_p = str(p.resolve()).replace("\\", "/")
+            escaped_p = str(p.resolve()).replace("\\", "/").replace("'", "'\\''")      # an apostrophe in a file name must not end the quote
             f.write(f"file '{escaped_p}'\n")
             
     concat_cmd = [
