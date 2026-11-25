@@ -194,6 +194,8 @@ def member_label(label: str) -> Tuple[str, str]:
         low = low[len(prefix):]
     if "thumbnail art direction" in low:
         return prefix + "Thumbnail design", ""
+    if "(claude)" in low:                                  # Claude writes the title and description (it is no longer used for thumbnails)
+        return prefix + "Titles and descriptions", ""
     if "ai text" in low or "safety review" in low:
         return prefix + "Writing and review", ""
     if low.startswith("images"):
