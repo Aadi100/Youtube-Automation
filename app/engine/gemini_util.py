@@ -62,7 +62,7 @@ def generate(prompt: str, timeout: int = 45, json_mode: bool = False) -> str:
                 last = f"{m}: empty answer"
                 break
             last = f"{m}: HTTP {r.status_code}"
-            if r.status_code == 400 and "thinking" in r.text.lower() and "thinkingConfig" in (body.get("generationConfig") or {}):
+            if r.status_code == 400 and "thinkingConfig" in (body.get("generationConfig") or {}):          # the newest models answer "invalid argument" to thinking budget 0
                 body["generationConfig"].pop("thinkingConfig", None)     # this model cannot switch thinking off: ask the normal way
                 continue
             if r.status_code == 429 or r.status_code == 404:   # quota used up / model gone: next model right away

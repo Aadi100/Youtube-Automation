@@ -52,14 +52,14 @@ def tier_options(is_owner: bool) -> List[Dict]:
     from app.engine import thumb_best
     from app.services import diy_service
     p, fl = tokens.pricing(), diy_service.flags()
-    gem, cf = thumb_best.gemini_ready(), thumb_best.cloudflare_ready()
+    gem, cf = thumb_best.planner_ready(), thumb_best.cloudflare_ready()
     writer = PROMPT_WRITER_TOKENS / 1000.0 * min(p["deepseek_per_1k"], p["gemini_per_1k"]) if os.environ.get("THUMB_PROMPT_AI", "on").lower() not in ("off", "0", "no") else 0.0
     est_best = p["image_flux"] + GEMINI_PLAN_TOKENS / 1000.0 * p["gemini_per_1k"] + writer
     off = "The owner has not switched this level on."
     allowed = is_owner or fl["tier_high"]
     # the owner is told which key is missing; a member only reads what the level does and whether it is available (no service or model names)
     if is_owner:
-        why = "Needs the Gemini key." if not gem else "Needs the Cloudflare account ID and API token (Settings -> Accounts & keys)." if not cf else ""
+        why = "Needs the Gemini key (or the DeepSeek key)." if not gem else "Needs the Cloudflare account ID and API token (Settings -> Accounts & keys)." if not cf else ""
     else:
         why = off if not fl["tier_high"] else ("" if gem and cf else "Not available right now.")
     rows = [("better", "Better", "A free AI picture behind the real frame. The best frame is found by code, the picture prompt is written for your video, and the headline is added by the studio.", p["image_free"] + writer, True, ""),

@@ -15,6 +15,6 @@ nudenet>=3.4
 numpy>=1.26
 PyYAML>=6
 dnspython>=2.4                       # MongoDB Atlas addresses (mongodb+srv://) need it
-opencv-python-headless>=4.8  # face finder, thumbnails and the Reaction Lab (nudenet also installs it)
+opencv-python-headless>=4.8,<5  # face finder, thumbnails and the Reaction Lab (nudenet also installs it). Not 5.x: it dropped CascadeClassifier, the face detector
 scipy>=1.11                            # Reaction Lab sound analysis
 gunicorn>=22.0; sys_platform != "win32"          # production web server on the Linux VPS (a Windows PC uses waitress)

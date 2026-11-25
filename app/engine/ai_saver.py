@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 # answer limits (in AI tokens) per task: enough for the real answer, not for waffle
-LIMITS = {"commentary": 360, "metadata": 1300, "moments": 1100, "scoring": 900, "thumbnail-headlines": 450, "thumb-plan": 800, "thumb-review": 300, "thumb-prompt": 500, "safety": 160}
+LIMITS = {"commentary": 360, "metadata": 1300, "moments": 1100, "scoring": 900, "thumbnail-headlines": 450, "thumb-plan": 800, "thumb-review": 300, "thumb-prompt": 500, "thumb-plan-text": 600, "safety": 160}
 EXEMPT = {"safety"}                     # the safety review is never refused because of a budget
 LOW_RES_RATIO = 3.1                     # measured: 6,628 tokens at default resolution vs 1,612 at low (the saving is 3.1 times what is still spent)
 _spent = 0

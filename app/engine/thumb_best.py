@@ -40,8 +40,17 @@ def gemini_ready() -> bool:
     return bool((os.environ.get("GEMINI_API_KEY") or "").strip())
 
 
+def deepseek_ready() -> bool:
+    return bool((os.environ.get("DEEPSEEK_API_KEY") or "").strip())
+
+
+def planner_ready() -> bool:
+    """Something that can plan the thumbnail: Gemini (it looks at the frames) or, when Gemini fails, DeepSeek (it plans from the facts, without seeing the frames)."""
+    return gemini_ready() or deepseek_ready()
+
+
 def ready() -> bool:
-    return gemini_ready() and cloudflare_ready()
+    return planner_ready() and cloudflare_ready()
 
 
 def text_by_code() -> bool:
@@ -105,17 +114,35 @@ def _gemini_json(parts: List[Dict], task: str, timeout: int = 90) -> Dict:
     if not key:
         raise RuntimeError("no Gemini key")
     body = {"contents": [{"parts": parts}], "generationConfig": {"responseMimeType": "application/json", "temperature": 0.7}}
-    if (os.environ.get("AI_GEMINI_THINKING") or "off").strip().lower() in ("off", "0", "no"):
-        body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+    switch_off = (os.environ.get("AI_GEMINI_THINKING") or "off").strip().lower() in ("off", "0", "no")
     last = "no model answered"
     for m in gemini_util.models():
-        try:
-            r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent", headers={"x-goog-api-key": key}, json=body, timeout=timeout)
-        except requests.RequestException as e:
-            last = f"{m}: {type(e).__name__}"
+        r = None
+        # the newest models refuse "thinking budget 0" (HTTP 400, invalid argument): they are asked again the normal way. A busy model (503) gets one more try.
+        for attempt in ((True, False) if switch_off else (False,)):
+            b = {**body, "generationConfig": {**body["generationConfig"], **({"thinkingConfig": {"thinkingBudget": 0}} if attempt else {})}}
+            for retry in range(2):
+                try:
+                    r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent", headers={"x-goog-api-key": key}, json=b, timeout=timeout)
+                except requests.RequestException as e:
+                    last, r = f"{m}: {type(e).__name__}", None
+                    break
+                if r.status_code == 503 and retry == 0:
+                    import time as _time
+                    _time.sleep(3)
+                    continue
+                break
+            if r is not None and r.status_code == 400 and attempt:
+                continue
+            break
+        if r is None:
             continue
         if r.status_code != 200:
-            last = f"{m}: HTTP {r.status_code}"
+            try:
+                why = (r.json().get("error") or {}).get("message", "")[:80]
+            except Exception:
+                why = ""
+            last = f"{m}: HTTP {r.status_code}" + (f" ({why})" if why else "")
             continue
         try:
             data = r.json()
@@ -138,19 +165,65 @@ def _image_part(path: Path) -> Dict:
     return {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(Path(path).read_bytes()).decode()}}
 
 
+def _facts(ctx: Dict, recipe: Optional[Dict]) -> str:
+    facts = (f"Game: {ctx.get('game') or 'gaming'}. Video title: {ctx.get('title') or '-'}. What happens: {(ctx.get('hook') or ctx.get('topic') or '-')[:200]}. "
+             f"Kind of video: {ctx.get('content_type') or 'funny'}.")
+    if recipe:
+        facts += (f" What works for this kind of video (measured from popular thumbnails): headline {recipe.get('text_pos', 'top')}, text colour {recipe.get('text_color')}, "
+                  f"accent {recipe.get('accent')}, at most {recipe.get('max_words', 3)} words, good looks: {', '.join(recipe.get('styles', []))}.")
+    return facts
+
+
+def _ask_text(prompt: str) -> str:
+    """One text AI call (DeepSeek first, then Gemini text) for a plan made from the facts alone. Its tokens are recorded as real usage."""
+    from app.engine import llm
+    return llm.generate("thumb-plan-text", prompt, json_mode=True, timeout=45)
+
+
+def _text_plan(ctx: Dict, recipe: Optional[Dict]) -> Optional[Dict]:
+    """The plan when Gemini cannot look at the frames: DeepSeek imagines the best thumbnail from the game, the title, what happens and the recipe."""
+    import json
+    prompt = (SYSTEM + " You cannot see the video: imagine the thumbnail that fits these facts. " + _facts(ctx, recipe) +
+              f' Return JSON: {{"headline": "2-4 words, ALL CAPS, max 20 characters, easy to spell, not the same as the title", "style": one of {STYLE_IDS}, '
+              f'"text_color": "#RRGGBB", "accent": "#RRGGBB", "scene": "one sentence that describes the thumbnail picture: this game, its characters and the action, made vivid '
+              f'and dramatic; no text, no real people", "subject": "the main subject, max 12 words", "action": "what it is doing, max 12 words", '
+              f'"setting": "where it happens, max 12 words", "mood": "one or two words: funny, scary, epic, chaotic, tense...", "why": "max 12 words"}}')
+    try:
+        raw = _ask_text(prompt).strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        a, b = raw.find("{"), raw.rfind("}")
+        p = check(json.loads(raw[a:b + 1]), 0)
+    except Exception as e:
+        print(f"[Thumbnail] the text plan is unavailable ({str(e)[:100]})", flush=True)
+        return None
+    if not p.get("scene"):
+        return None
+    print(f"[Thumbnail] plan made from the facts (DeepSeek or Gemini text): '{p.get('headline')}', {p.get('style')} ({p.get('why')})", flush=True)
+    return p
+
+
 def plan(video: Path, ctx: Dict, recipe: Optional[Dict] = None) -> Optional[Dict]:
-    """The plan for one thumbnail, or None when Gemini is unavailable (the caller then uses the Better level)."""
-    if not gemini_ready():
+    """The plan for one thumbnail. Gemini looks at the frames; if it cannot (quota, busy, error), DeepSeek plans it from the facts instead. None only when
+    neither works (the caller then uses the Better level)."""
+    if not planner_ready():
         return None
     with tempfile.TemporaryDirectory() as td:
-        fr = _frames(video, Path(td))
-        if not fr:
-            return None
-        facts = (f"Game: {ctx.get('game') or 'gaming'}. Video title: {ctx.get('title') or '-'}. What happens: {(ctx.get('hook') or ctx.get('topic') or '-')[:200]}. "
-                 f"Kind of video: {ctx.get('content_type') or 'funny'}.")
-        if recipe:
-            facts += (f" What works for this kind of video (measured from popular thumbnails): headline {recipe.get('text_pos', 'top')}, text colour {recipe.get('text_color')}, "
-                      f"accent {recipe.get('accent')}, at most {recipe.get('max_words', 3)} words, good looks: {', '.join(recipe.get('styles', []))}.")
+        try:
+            fr = _frames(video, Path(td)) if gemini_ready() else []
+        except Exception as e:
+            print(f"[Thumbnail] frames could not be picked ({type(e).__name__}: {str(e)[:80]})", flush=True)
+            fr = []
+        p = _vision_plan(fr, ctx, recipe) if (fr and gemini_ready()) else None
+        if not p:
+            p = _text_plan(ctx, recipe)
+            if p and fr:
+                p["t"] = fr[0]["t"]                    # the best frame found by code (frames come best first)
+        return p
+
+
+def _vision_plan(fr: List[Dict], ctx: Dict, recipe: Optional[Dict]) -> Optional[Dict]:
+    """Gemini's plan from the frames, or None."""
+    for _once in (1,):
+        facts = _facts(ctx, recipe)
         parts: List[Dict] = [{"text": SYSTEM}]
         for i, f in enumerate(fr):
             parts += [{"text": f"Frame {i + 1}:"}, _image_part(f["path"])]
@@ -304,11 +377,15 @@ def test() -> Dict:
     _note(True)
     msg = f"Cloudflare drew a test picture ({size[0]}x{size[1]}). "
     if not gemini_ready():
-        return {"ok": False, "message": msg + "But the Gemini key is not saved, and Best needs it to plan the thumbnail."}
+        if deepseek_ready():
+            return {"ok": True, "message": msg + "The Gemini key is not saved, so DeepSeek will plan the thumbnails (from the facts, without seeing the frames). Best thumbnails are ready."}
+        return {"ok": False, "message": msg + "But neither the Gemini key nor the DeepSeek key is saved, and Best needs one of them to plan the thumbnail."}
     try:
         _gemini_json([{"text": 'Reply with exactly this JSON: {"ok": true}'}], "thumb-test", 40)
     except Exception as e:
-        return {"ok": False, "message": msg + f"But Gemini did not answer ({str(e)[:100]}). Check the Gemini key."}
+        if deepseek_ready():
+            return {"ok": True, "message": msg + f"Gemini did not answer right now ({str(e)[:100]}), so DeepSeek will plan the thumbnails when that happens. Best thumbnails are ready."}
+        return {"ok": False, "message": msg + f"But Gemini did not answer ({str(e)[:100]}) and there is no DeepSeek key as a backup. Check the Gemini key."}
     return {"ok": True, "message": msg + "Gemini answered too. Best thumbnails are ready."}
 
 

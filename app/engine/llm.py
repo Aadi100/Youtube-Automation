@@ -19,7 +19,7 @@ import requests
 from app.engine import ai_saver, gemini_util
 
 ORDER = {"commentary": ["deepseek", "gemini"], "moments": ["deepseek", "gemini"],
-         "metadata": ["deepseek", "gemini"], "scoring": ["gemini", "deepseek"], "thumb-prompt": ["deepseek", "gemini"]}
+         "metadata": ["deepseek", "gemini"], "scoring": ["gemini", "deepseek"], "thumb-prompt": ["deepseek", "gemini"], "thumb-plan-text": ["deepseek", "gemini"]}
 
 
 def _log(msg: str) -> None:
