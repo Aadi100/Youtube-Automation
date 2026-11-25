@@ -57,7 +57,7 @@ def _from_gemini(prompt: str, mode: str, out: Path, ref: Optional[Path] = None) 
     if not key or _gemini_blocked:
         return None
     parts = [{"text": prompt}]
-    if ref and Path(ref).is_file():            # image-to-image: Gemini redraws the real frame (Medium and High)
+    if ref and Path(ref).is_file():            # (not used any more: the Better level does not send the real frame anywhere)
         parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(Path(ref).read_bytes()).decode()}})
     body = {"contents": [{"parts": parts}],
             "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": "9:16" if mode == "9:16" else "16:9"}}}
@@ -110,16 +110,15 @@ def _record_image(provider: str) -> None:
 
 def generate_background(game_name: str, mode: str, out: Path, scene: str = "", ref: Optional[Path] = None, tier: Optional[str] = None) -> Optional[Path]:
     """Returns the path of a generated background image (no text on it), or None.
-    tier free: the free image service. tier medium / high: Gemini redraws the real frame `ref`; if that is not possible the free service is used."""
+    This is the Better level: the free image service (or Gemini images when AI_IMAGE_PROVIDER=gemini). The Best level is drawn by thumb_best (FLUX)."""
     LAST_PROVIDER["name"] = None
     if not enabled():
         return None
-    tier = (tier or os.environ.get("THUMB_TIER") or "free").strip().lower()
-    prompt = build_redraw_prompt(game_name, scene) if (ref and tier in ("medium", "high")) else build_prompt(game_name, scene=scene)
-    provider = "gemini" if tier in ("medium", "high") else (os.environ.get("AI_IMAGE_PROVIDER") or "free").strip().lower()
+    prompt = build_prompt(game_name, scene=scene)
+    provider = (os.environ.get("AI_IMAGE_PROVIDER") or "free").strip().lower()
     try:
         if provider == "gemini":
-            p = _from_gemini(prompt, mode, out, ref if tier in ("medium", "high") else None)
+            p = _from_gemini(prompt, mode, out)
             if p:
                 print("[AI art] background from Gemini")
                 _record_image("gemini")

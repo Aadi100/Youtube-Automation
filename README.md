@@ -39,10 +39,12 @@ pictures read at low resolution (`AI_MEDIA_RESOLUTION`, default low: the safety 
 and a cache (`ai_cache`, 30 days) so the same clip or video is never analysed twice. Reports -> "AI tokens saved" shows the effect.
 The safety check is never skipped, only made cheaper.
 
-Thumbnails have three levels (Create -> Do it yourself, or Settings -> My preferences): **Free** (a free AI picture), **Better** (Gemini redraws the real frame:
-the Gemini key needs billing enabled for images, otherwise it falls back to Free and is billed as Free), **Best** (Claude looks at frames picked by code and plans
-the thumbnail, Gemini draws it, Claude checks it once; needs `ANTHROPIC_API_KEY`). The owner switches Better / Best on for members under Users. The best frame and the
-kind of video are found by code (no tokens), and `python -m app.engine.playbook build` studies popular YouTube thumbnails and stores the measurements in `state/playbook.json`.
+Thumbnails have two levels (Create -> Do it yourself, or Settings -> My preferences): **Better** (a free AI picture behind the real frame; the headline is added by the studio) and
+**Best** (Gemini looks at the best frames and plans the thumbnail, then **FLUX.1 [schnell]** draws the finished thumbnail with its headline in the picture). Best needs the Gemini key
+and a Cloudflare account ID and API token (Settings -> Accounts & keys; Cloudflare Workers AI gives about 170 thumbnails a day for free, then about $0.0006 each). If Gemini or FLUX
+cannot do it, the thumbnail is made the Better way and billed as Better. Two optional settings (Settings -> Audience & clips): `THUMB_TEXT` (`flux` writes the headline in the picture,
+`code` lets the studio write it on top of FLUX's picture) and `THUMB_REVIEW` (`on`: Gemini checks each Best thumbnail once). The owner switches Best on for members under Users.
+The best frame and the kind of video are found by code (no tokens), and `python -m app.engine.playbook build` studies popular YouTube thumbnails and stores the measurements in `state/playbook.json`.
 
 ## Credits
 Every description lists each featured creator with their **channel link** and the **original video link** (also shortened

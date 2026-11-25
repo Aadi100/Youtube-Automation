@@ -1342,9 +1342,9 @@ async function create() {
         if ($("#d_title").value !== "mine") t += pick("metadata");
         if (["default", "replace"].includes($("#audio").value) && $("#d_comm").value !== "mine") t += pick("commentary");
         if ($("#d_thumb").value !== "frame") {
-          const tiers = d.tiers || [], lv = $("#d_tier").value || d.tier || "free", row = tiers.find(x => x.id === lv), med = tiers.find(x => x.id === "medium");
-          const pics = ($("#d_pics").value || String(d.pictures || 1)) === "3" ? 3 : 1, first = lv === "free" || !row ? d.estimate.image : row.price;
-          t += first + (pics - 1) * (lv === "free" || !med ? d.estimate.image : med.price);
+          const tiers = d.tiers || [], lv = $("#d_tier").value || d.tier || "better", row = tiers.find(x => x.id === lv), med = row;
+          const pics = ($("#d_pics").value || String(d.pictures || 1)) === "3" ? 3 : 1, first = lv === "better" || !row ? d.estimate.image : row.price;
+          t += first + (pics - 1) * (lv === "better" || !med ? d.estimate.image : med.price);
         }
         est = ` Estimated for this Short: about ${Math.round(t * 10) / 10} tokens + ${d.estimate.upload} for the upload.`;
       } else est = " A compilation costs roughly 8 to 10 times a Short.";
@@ -1368,7 +1368,7 @@ async function create() {
     ["ai_text", "d_title", "d_thumb", "d_pics", "d_tier", "d_comm", "d_src", "audio", "source"].forEach(id => { if ($("#" + id)) $("#" + id).addEventListener("change", () => { diyShow(); showCost(); }); });
     const tierSel = $("#d_tier");
     if (tierSel && d.tiers) {
-      tierSel.innerHTML = `<option value="">My setting (${esc((d.tiers.find(x => x.id === d.tier) || {name: "Free"}).name)})</option>` + d.tiers.filter(x => x.available).map(x => `<option value="${x.id}">${esc(x.name)}: ${esc(x.desc)} About ${x.price} token${x.price === 1 ? "" : "s"} a picture.</option>`).join("");
+      tierSel.innerHTML = `<option value="">My setting (${esc((d.tiers.find(x => x.id === d.tier) || {name: "Better"}).name)})</option>` + d.tiers.filter(x => x.available).map(x => `<option value="${x.id}">${esc(x.name)}: ${esc(x.desc)} About ${x.price} token${x.price === 1 ? "" : "s"} a picture.</option>`).join("");
       const locked = d.tiers.filter(x => !x.available); $("#d_tier_help").textContent = locked.length ? locked.map(x => `${x.name}: ${x.reason}`).join(" · ") : "";
     }
     diyShow(); showCost();
@@ -2658,8 +2658,8 @@ async function users() {
       k(`${quotaPct}%`, `YouTube uploads today: ${yq.uploads_used} of ${yq.uploads_total}${sys.uploads_waiting ? " · " + sys.uploads_waiting + " waiting" : ""}`, quotaPct > 90 ? "warn" : "ok");
     const pr = d.pricing;
     const GROUPS = [
-      ["AI text: tokens charged per 1,000 AI tokens (the AI service reports the real number)", [["gemini_per_1k", "Gemini (text and safety review)"], ["deepseek_per_1k", "DeepSeek"], ["claude_per_1k", "Claude (High thumbnails)"]]],
-      ["Images: per image", [["image_free", "Free image service"], ["image_gemini", "Gemini image"]]],
+      ["AI text: tokens charged per 1,000 AI tokens (the AI service reports the real number)", [["gemini_per_1k", "Gemini (text and safety review)"], ["deepseek_per_1k", "DeepSeek"], ["claude_per_1k", "Claude (titles)"]]],
+      ["Thumbnail pictures: per picture", [["image_free", "Better level (free image service)"], ["image_flux", "Best level (FLUX, finished thumbnail; Gemini planning is charged on top)"], ["image_gemini", "Gemini picture (only if chosen as the Better image service)"]]],
       ["Parts that run on your own server (0 = free)", [["tts_per_1k_chars", "Voice: per 1,000 characters"], ["whisper_per_min", "Captions: per minute of speech"], ["safety_local_per_clip", "Local safety check: per clip"]]],
       ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["server_per_video", "Server usage (every video made)"]]],
     ["Searching for clips: every clip found", [["youtube_source", "YouTube clip"], ["twitch_source", "Twitch clip"], ["kick_source", "Kick clip"]]],
@@ -2756,7 +2756,7 @@ async function reports() {
     document.querySelectorAll("[data-rv]").forEach(a => a.onclick = e => { e.preventDefault(); openVideo(a.dataset.rv); });
     const rt = r.rates;
     $("#rrates").innerHTML = `<div class="fields">${[["token_usd", "One token is worth, $"], ["gemini_in_per_1m", "Gemini input, $ per 1M tokens"], ["gemini_out_per_1m", "Gemini output, $ per 1M tokens"], ["claude_search_usd", "Claude web search, $ per search"], ["claude_in_per_1m", "Claude input, $ per 1M tokens"], ["claude_out_per_1m", "Claude output, $ per 1M tokens"], ["deepseek_in_per_1m", "DeepSeek input, $ per 1M tokens"],
-        ["deepseek_out_per_1m", "DeepSeek output, $ per 1M tokens"], ["image_gemini_usd", "Gemini image, $ each"], ["image_free_usd", "Free image, $ each"]].map(([k, l]) =>
+        ["deepseek_out_per_1m", "DeepSeek output, $ per 1M tokens"], ["image_gemini_usd", "Gemini image, $ each"], ["image_flux_usd", "Best thumbnail (FLUX), $ each"], ["image_free_usd", "Free image, $ each"]].map(([k, l]) =>
         `<div><label>${l}</label><input type="number" min="0" step="0.0001" data-rc="${k}" value="${rt[k]}"></div>`).join("")}</div>
       <div class="row" style="margin-top:12px"><button class="pri" id="rc_save">Save</button><span class="muted">Free-tier keys cost $0. Change the token prices on the Users page.</span></div>`;
     $("#rc_save").onclick = guard(async () => { const body = {}; document.querySelectorAll("[data-rc]").forEach(i => body[i.dataset.rc] = i.value); await api("/api/admin/costs", {method: "PUT", body}); toast("Saved"); load(); });
@@ -3080,7 +3080,7 @@ async function settings() {
      desc: "Connect your own YouTube channel. The studio then uploads your videos there for you, using your own channel's permission."},
     {id: "conn", icon: "key", title: "Accounts & keys",
      desc: "The keys that let the studio find clips, write commentary and sign off on videos. Secrets are stored on this computer only and never shown again.",
-     keys: ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET", "YOUTUBE_API_KEY", "GEMINI_API_KEY", "GEMINI_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_RESEARCH_MODEL", "TITLE_AI", "ANTHROPIC_TITLE_MODEL", "RESEARCH_PROVIDER", "TAVILY_API_KEY", "BRAVE_API_KEY", "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "LLM_SPLIT", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YT_DAILY_UPLOADS", "YT_DAILY_UNITS", "CONTACT_EMAIL"],
+     keys: ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET", "YOUTUBE_API_KEY", "GEMINI_API_KEY", "GEMINI_MODEL", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_RESEARCH_MODEL", "TITLE_AI", "ANTHROPIC_TITLE_MODEL", "RESEARCH_PROVIDER", "TAVILY_API_KEY", "BRAVE_API_KEY", "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "LLM_SPLIT", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YT_DAILY_UPLOADS", "YT_DAILY_UNITS", "CONTACT_EMAIL"],
      status: ["TWITCH_CLIENT_SECRET", "GEMINI_API_KEY"]},
     {id: "ytx", icon: "videos", title: "YouTube access",
      desc: "YouTube refuses many cloud servers (\"Sign in to confirm you're not a bot\"). The lasting fix is a proxy with a home-type address: paste it here, then press Test."},
@@ -3088,7 +3088,7 @@ async function settings() {
      desc: "What the platforms charge you for each model, what one studio token is worth, what members pay, and what a video earns you. The same prices and costs as the Users and Reports pages."},
     {id: "aud", icon: "globe", title: "Audience & clips",
      desc: "The studio-wide defaults: what members get until they choose their own creator countries and languages, how live streams are watched, and the safety settings.",
-     keys: ["CLIP_COUNTRIES", "CLIP_LANGUAGES", "SAFE_MODE", "DEFAULT_AUDIO_MODE", "TTS_VOICE", "LIVE_WATCH_MINUTES", "LIVE_STREAMS", "SOUND_PEAKS", "AI_THUMBNAILS", "AI_IMAGE_PROVIDER", "SAFETY_AI_FRAMES", "SAFETY_AI_WIDTH", "SAFETY_FINAL_AI"]},
+     keys: ["CLIP_COUNTRIES", "CLIP_LANGUAGES", "SAFE_MODE", "DEFAULT_AUDIO_MODE", "TTS_VOICE", "LIVE_WATCH_MINUTES", "LIVE_STREAMS", "SOUND_PEAKS", "AI_THUMBNAILS", "AI_IMAGE_PROVIDER", "THUMB_TEXT", "THUMB_REVIEW", "SAFETY_AI_FRAMES", "SAFETY_AI_WIDTH", "SAFETY_FINAL_AI"]},
     {id: "clip", icon: "clips", title: "What to clip",
      desc: "Choose which kinds of moments the clipper looks for, add your own ideas, and say what it must never clip. The AI is given exactly these instructions."},
     {id: "audme", icon: "globe", title: "Creators & languages",
@@ -3111,9 +3111,11 @@ async function settings() {
     TWITCH_CLIENT_ID: ["Twitch client ID", "Free at dev.twitch.tv/console. Needed for Twitch clips and live streams."],
     TWITCH_CLIENT_SECRET: ["Twitch client secret", ""],
     YOUTUBE_API_KEY: ["YouTube Data API key (optional)", "Better search results and channel countries. Works without it."],
-    GEMINI_API_KEY: ["Gemini API key", "Writes titles, descriptions and the commentary."],
+    GEMINI_API_KEY: ["Gemini API key", "Writes titles, descriptions and the commentary, and plans the Best thumbnails."],
+    CLOUDFLARE_ACCOUNT_ID: ["Cloudflare account ID", "Needed for the Best thumbnail level (FLUX draws it). dash.cloudflare.com -> AI -> Workers AI -> Use REST API: the Account ID is shown there."],
+    CLOUDFLARE_API_TOKEN: ["Cloudflare API token", "Create it on the same page with 'Create a Workers AI API token'. About 170 thumbnails a day are free, then a fraction of a cent each. It is saved only on this computer."],
     GEMINI_MODEL: ["Gemini model", "Leave as is unless a model is retired."],
-    ANTHROPIC_API_KEY: ["Claude API key", "Optional. Turns on the High thumbnail level: Claude looks at the best frames and plans the thumbnail. Get one at console.anthropic.com. It is saved only on this computer."],
+    ANTHROPIC_API_KEY: ["Claude API key", "Optional. Used to write titles and descriptions when Claude is the chosen writer, and for the clipping research. Get one at console.anthropic.com. It is saved only on this computer."],
     ANTHROPIC_RESEARCH_MODEL: ["Claude model for research", "Optional. The clipping research can use a stronger model than thumbnails. Leave empty to use the Claude model above. Web search must be switched on for your Anthropic account."],
     TITLE_AI: ["AI that writes titles and descriptions", "Titles decide whether people click, so a stronger writer is worth the few cents. Auto: Claude when you have a Claude key, else Gemini, else DeepSeek (or the choice you made under 'How to share the work'). The others stay as backup."],
     ANTHROPIC_TITLE_MODEL: ["Claude model for titles", "Optional. Leave empty to use the Claude model above. A larger model costs more per title."],
@@ -3141,7 +3143,9 @@ async function settings() {
     SAFETY_AI_FRAMES: ["Safety review: frames per clip", "How many frames Gemini looks at per clip (3-12). 6 is the default; more frames catch more but cost more tokens."],
     SAFETY_AI_WIDTH: ["Safety review: frame width (px)", "Size of each frame sent to Gemini (256-768). 384 is the default; bigger frames cost more tokens."],
     SAFETY_FINAL_AI: ["Safety review of the finished video", "Off: the clips were already reviewed, so the finished video gets only the free checks (cheaper). On: Gemini reviews it a second time."],
-    AI_IMAGE_PROVIDER: ["AI image service", "free = keyless free service. gemini = Google image models (needs billing enabled on your Gemini key)."],
+    THUMB_TEXT: ["Best thumbnails: who writes the headline", "FLUX writes it into the picture (one step, but a word is sometimes misspelled). Or the studio writes it on top of FLUX's picture (always spelled right, in the member's own style and font)."],
+    THUMB_REVIEW: ["Best thumbnails: Gemini checks the result", "On: Gemini looks at each finished Best thumbnail once and, if the headline is misspelled or hard to read, FLUX draws it again once. Costs a few AI tokens and sometimes one more picture."],
+    AI_IMAGE_PROVIDER: ["Better level: AI image service", "free = keyless free service. gemini = Google image models (needs billing enabled on your Gemini key)."],
     SMTP_HOST: ["SMTP server", "Gmail: smtp.gmail.com"],
     SMTP_PORT: ["SMTP port", "587 for STARTTLS, 465 for SSL."],
     SMTP_SECURITY: ["Security", ""],
@@ -3157,7 +3161,7 @@ async function settings() {
   const VOICE_OPTS = [["random", "Random: a different narrator for each video"]].concat(voices.map(v => [v.id, `${v.name} · ${v.locale.replace("en-", "")} · ${v.gender.toLowerCase()}`]));
   let cmods = []; if (isOwner) { try { cmods = (await api("/api/claude/models")).models; } catch (e) {} }
   const CM = cmods.map(m => [m.id, m.name === m.id ? m.id : `${m.name} (${m.id})`]);
-  const SELECTS = {TITLE_AI: [["auto", "Auto (the strongest writer you have a key for)"], ["claude", "Claude"], ["gemini", "Gemini"], ["deepseek", "DeepSeek"]], ANTHROPIC_TITLE_MODEL: [["", "Same as the Claude model above"]].concat(CM), SOUND_PEAKS: [["on", "On (listen to the video)"], ["off", "Off (captions and replays only)"]], RESEARCH_PROVIDER: [["claude", "Claude (web search)"], ["gemini", "Gemini (Google Search)"], ["deepseek", "DeepSeek (needs a free Tavily or Brave search key)"]], ANTHROPIC_MODEL: [["", "Default (claude-sonnet-5-5)"]].concat(CM), ANTHROPIC_RESEARCH_MODEL: [["", "Same as the Claude model above"]].concat(CM), LLM_SPLIT: [["balanced", "Balanced (recommended)"], ["deepseek", "DeepSeek first for everything"], ["gemini", "Gemini first for everything"]], TTS_VOICE: VOICE_OPTS, SMTP_SECURITY: SECURITY, DEFAULT_AUDIO_MODE: AUDIO_OPTS, SAFE_MODE: [["on", "On (recommended)"], ["off", "Off"]], AI_THUMBNAILS: [["on", "On"], ["off", "Off"]], SAFETY_FINAL_AI: [["off", "Off (cheaper, recommended)"], ["on", "On (Gemini reviews it twice)"]], AI_IMAGE_PROVIDER: [["free", "Free service (no key)"], ["gemini", "Google Gemini (needs billing)"]]};
+  const SELECTS = {TITLE_AI: [["auto", "Auto (the strongest writer you have a key for)"], ["claude", "Claude"], ["gemini", "Gemini"], ["deepseek", "DeepSeek"]], ANTHROPIC_TITLE_MODEL: [["", "Same as the Claude model above"]].concat(CM), THUMB_TEXT: [["flux", "FLUX writes the headline in the picture"], ["code", "The studio writes the headline on top"]], THUMB_REVIEW: [["off", "Off"], ["on", "On (Gemini checks each Best thumbnail once)"]], SOUND_PEAKS: [["on", "On (listen to the video)"], ["off", "Off (captions and replays only)"]], RESEARCH_PROVIDER: [["claude", "Claude (web search)"], ["gemini", "Gemini (Google Search)"], ["deepseek", "DeepSeek (needs a free Tavily or Brave search key)"]], ANTHROPIC_MODEL: [["", "Default (claude-sonnet-5-5)"]].concat(CM), ANTHROPIC_RESEARCH_MODEL: [["", "Same as the Claude model above"]].concat(CM), LLM_SPLIT: [["balanced", "Balanced (recommended)"], ["deepseek", "DeepSeek first for everything"], ["gemini", "Gemini first for everything"]], TTS_VOICE: VOICE_OPTS, SMTP_SECURITY: SECURITY, DEFAULT_AUDIO_MODE: AUDIO_OPTS, SAFE_MODE: [["on", "On (recommended)"], ["off", "Off"]], AI_THUMBNAILS: [["on", "On"], ["off", "Off"]], SAFETY_FINAL_AI: [["off", "Off (cheaper, recommended)"], ["on", "On (Gemini reviews it twice)"]], AI_IMAGE_PROVIDER: [["free", "Free service (no key)"], ["gemini", "Google Gemini (needs billing)"]]};
   const field = (k, v) => {
     const [label, help] = META[k] || [k, ""];
     if (SELECTS[k] && v.value && !SELECTS[k].some(o => o[0] === v.value)) SELECTS[k].push([v.value, v.value]);
@@ -3295,10 +3299,10 @@ async function settings() {
   });
   const loadYtx_status = r => { if (r.ok) { const chip = document.querySelector("#ytxcfg .st"); if (chip) { chip.className = "st ok"; chip.textContent = "Working"; } } };
   /* ---- Pricing & costs (owner): what the platforms charge you, what a token is worth, what members pay, and what a video earns */
-  const PX_COST_KEYS = ["gemini_in_per_1m", "gemini_out_per_1m", "deepseek_in_per_1m", "deepseek_out_per_1m", "claude_in_per_1m", "claude_out_per_1m", "claude_search_usd", "image_gemini_usd", "image_free_usd", "token_usd"];
+  const PX_COST_KEYS = ["gemini_in_per_1m", "gemini_out_per_1m", "deepseek_in_per_1m", "deepseek_out_per_1m", "claude_in_per_1m", "claude_out_per_1m", "claude_search_usd", "image_gemini_usd", "image_free_usd", "image_flux_usd", "token_usd"];
   const PX_PRICE_GROUPS = [
-    ["AI text, per 1,000 AI tokens", [["gemini_per_1k", "Gemini (text and safety review)"], ["deepseek_per_1k", "DeepSeek (text)"], ["claude_per_1k", "Claude (thumbnails)"]]],
-    ["Pictures, each", [["image_free", "Free image service"], ["image_gemini", "Gemini picture"]]],
+    ["AI text, per 1,000 AI tokens", [["gemini_per_1k", "Gemini (text and safety review)"], ["deepseek_per_1k", "DeepSeek (text)"], ["claude_per_1k", "Claude (titles)"]]],
+    ["Thumbnail pictures, each", [["image_free", "Better level (free image service)"], ["image_flux", "Best level (FLUX; Gemini planning is charged on top)"], ["image_gemini", "Gemini picture (only if chosen as the Better image service)"]]],
     ["Parts that run on your own computer (0 = free)", [["tts_per_1k_chars", "Voice, per 1,000 characters"], ["whisper_per_min", "Captions, per minute of speech"], ["safety_local_per_clip", "Local safety check, per clip"]]],
     ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["server_per_video", "Server usage (every video made)"]]],
     ["Searching for clips: every clip found", [["youtube_source", "YouTube clip"], ["twitch_source", "Twitch clip"], ["kick_source", "Kick clip"]]],
@@ -3339,7 +3343,8 @@ async function settings() {
           ${r.kind === "text" ? `<div class="pxf"><label>Input, $ per 1M tokens</label><input data-px="${r.ik}" type="number" min="0" step="0.01" value="${fmt(o.costs[r.ik], 4)}"></div><div class="pxf"><label>Output, $ per 1M tokens</label><input data-px="${r.ok}" type="number" min="0" step="0.01" value="${fmt(o.costs[r.ok], 4)}"></div>`
             : `<div class="pxf"><label>$ each</label><input data-px="${r.pk}" type="number" min="0" step="0.001" value="${fmt(o.costs[r.pk], 5)}"></div>`}</div>
           <div class="pxinfo" id="pxi_${r.id}"></div></div>`).join("")}
-        <div class="pxm"><div class="pxmh"><b>Free image service</b></div><div class="pxmb"><div class="pxf"><label>$ each</label><input data-px="image_free_usd" type="number" min="0" step="0.001" value="${fmt(o.costs.image_free_usd, 5)}"></div></div></div></div>
+        <div class="pxm"><div class="pxmh"><b>Free image service (Better level)</b></div><div class="pxmb"><div class="pxf"><label>$ each</label><input data-px="image_free_usd" type="number" min="0" step="0.001" value="${fmt(o.costs.image_free_usd, 5)}"></div></div></div>
+        <div class="pxm"><div class="pxmh"><b>FLUX on Cloudflare (Best level)</b></div><div class="pxmb"><div class="pxf"><label>$ each thumbnail</label><input data-px="image_flux_usd" type="number" min="0" step="0.0001" value="${fmt(o.costs.image_flux_usd, 5)}"></div></div><div class="pxinfo">Free for about 170 thumbnails a day; after that about $0.0006 each. Gemini's planning is counted under Gemini above.</div></div></div>
       <h3 class="pxh"><span>3</span> What members pay (in tokens)</h3>
       <div class="pxhelper"><b>Set the AI and picture prices from my costs</b><span class="muted">Price = what the platform charges × (1 + margin) ÷ what one token is worth. Uses how your AI tokens split between input and output
           (Gemini ${mixTxt("gemini")}, DeepSeek ${mixTxt("deepseek")}, Claude ${mixTxt("claude")}). Nothing is saved until you press Save.</span>
@@ -3361,6 +3366,7 @@ async function settings() {
         const real = blend(c, plat, k), price = p[key], el = $("#pph_" + key); if (!el) continue;
         el.innerHTML = price > 0 ? `1 token = ${Math.round(1000 / price).toLocaleString()} ${plat} tokens charged · you pay about ${usd(real)} per 1,000${real > 0 ? ` · members pay ${usd(price * tu)} (${(price * tu / real).toFixed(1)}×)` : " (enter the platform price above)"}` : "Free for members";
       }
+      const pf = $("#pph_image_flux"); if (pf) pf.innerHTML = p.image_flux > 0 ? `Members pay ${usd(p.image_flux * tu)} · you pay ${usd(c.image_flux_usd)}${c.image_flux_usd > 0 ? ` (${(p.image_flux * tu / c.image_flux_usd).toFixed(1)}×)` : ""}` : "Free for members";
       const pg = $("#pph_image_gemini"); if (pg) pg.innerHTML = p.image_gemini > 0 ? `Members pay ${usd(p.image_gemini * tu)} · you pay ${usd(c.image_gemini_usd)}${c.image_gemini_usd > 0 ? ` (${(p.image_gemini * tu / c.image_gemini_usd).toFixed(1)}×)` : ""}` : "Free for members";
       for (const r of ROWS) {
         const sel = box.querySelector(`[data-pxm="${r.id}"]`), row = C.find(x => x.id === sel.value), inf = $("#pxi_" + r.id);
@@ -3372,14 +3378,14 @@ async function settings() {
       /* a typical video */
       const T = o.typical, fix = (kind, label) => {
         const t = T[kind], gem = t.gemini_tokens, ds = t.deepseek_tokens, cl = t.claude_tokens || 0, extra = +(($("#px_pics_" + kind) || {}).value || 0);
-        const tokens = gem / 1000 * p.gemini_per_1k + ds / 1000 * p.deepseek_per_1k + cl / 1000 * p.claude_per_1k + (t.images || 0) * p.image_free + extra * p.image_gemini + (kind === "short" ? p.safety_local_per_clip : p.safety_local_per_clip * 4) + p.search_per_video + p.server_per_video + (kind === "short" ? p.render_short : p.render_compilation);
+        const tokens = gem / 1000 * p.gemini_per_1k + ds / 1000 * p.deepseek_per_1k + cl / 1000 * p.claude_per_1k + (t.images || 0) * p.image_free + extra * p.image_flux + (kind === "short" ? p.safety_local_per_clip : p.safety_local_per_clip * 4) + p.search_per_video + p.server_per_video + (kind === "short" ? p.render_short : p.render_compilation);
         const up = kind === "short" ? p.upload_short : p.upload_compilation, pay = (tokens + up) * tu;
-        const real = gem / 1000 * blend(c, "gemini", "gemini") + ds / 1000 * blend(c, "deepseek", "deepseek") + cl / 1000 * blend(c, "claude", "claude") + (t.images || 0) * c.image_free_usd + extra * c.image_gemini_usd;
+        const real = gem / 1000 * blend(c, "gemini", "gemini") + ds / 1000 * blend(c, "deepseek", "deepseek") + cl / 1000 * blend(c, "claude", "claude") + (t.images || 0) * c.image_free_usd + extra * c.image_flux_usd;
         const profit = pay - real;
         return `<div class="pxv"><div class="pxvh"><b>${label}</b><span class="muted">${t.measured ? `average of your last ${t.videos} video${t.videos === 1 ? "" : "s"}` : "example numbers: no videos measured yet"}</span></div>
           <div class="pxvn"><div><span>Member pays</span><b>${(tokens + up).toFixed(1)} tokens</b><em>${usd(pay)}</em></div><div><span>You pay platforms</span><b>${usd(real)}</b><em>${Math.round(gem).toLocaleString()} Gemini + ${Math.round(ds).toLocaleString()} DeepSeek tokens${cl ? " + Claude" : ""}</em></div>
             <div class="${profit >= 0 ? "ok" : "bad"}"><span>You keep</span><b>${usd(profit)}</b><em>${pay > 0 ? Math.round(100 * profit / pay) + "% of what they pay" : "-"}</em></div></div>
-          <div class="pxvf"><label>Paid Gemini pictures in this video</label><input id="px_pics_${kind}" type="number" min="0" max="10" step="1" value="${extra}"><span class="muted">${tokens.toFixed(1)} tokens for the AI and pictures + ${up} for the upload (the upload costs you nothing). Reserve held at the start: ${kind === "short" ? p.hold_short : p.hold_compilation}.</span></div></div>`;
+          <div class="pxvf"><label>Best thumbnails (FLUX pictures) in this video</label><input id="px_pics_${kind}" type="number" min="0" max="10" step="1" value="${extra}"><span class="muted">${tokens.toFixed(1)} tokens for the AI and pictures + ${up} for the upload (the upload costs you nothing). Reserve held at the start: ${kind === "short" ? p.hold_short : p.hold_compilation}.</span></div></div>`;
       };
       const keep = {short: ($("#px_pics_short") || {}).value, compilation: ($("#px_pics_compilation") || {}).value};
       $("#px_prev").innerHTML = fix("short", "A Short") + fix("compilation", "A compilation");
@@ -3506,7 +3512,7 @@ async function settings() {
         <div class="full"><h3 style="margin:14px 0 2px">My thumbnail look</h3><div class="help">New videos use this automatically, so your channel has its own look. You can still change any single video in its Thumbnail studio.</div></div>
         ${sel("pf_tstyle", "Style", [["auto", "Vary automatically (never the same as your last two)"]].concat(to.styles.map(x => [x.id, x.name])), b.style, "")}
         ${sel("pf_tfont", "Font", to.fonts.map(f => [f.id, f.name]), b.font, "")}
-        ${sel("pf_ttier", "Thumbnail level", (to.tiers || [{id: "free", name: "Free", available: true, price: 1}]).filter(x => x.available || x.id === b.tier).map(x => [x.id, `${x.name}: about ${x.price} token${x.price === 1 ? "" : "s"} a picture`]), b.tier || "free", (to.tiers || []).filter(x => !x.available).map(x => `${x.name}: ${x.reason}`).join(" · "))}
+        ${sel("pf_ttier", "Thumbnail level", (to.tiers || [{id: "better", name: "Better", available: true, price: 1}]).filter(x => x.available || x.id === b.tier).map(x => [x.id, `${x.name}: about ${x.price} token${x.price === 1 ? "" : "s"} a picture`]), b.tier || "better", (to.tiers || []).filter(x => !x.available).map(x => `${x.name}: ${x.reason}`).join(" · "))}
         ${sel("pf_tpics", "AI pictures for each new thumbnail", [["1", "1 picture"], ["3", "3 pictures to choose from (3 times the picture cost)"]], String(b.pictures || 1), "With 3, the other two are kept for you to pick from in the Thumbnail studio. You can still choose for each video on the Create page.")}
         <div><label>Text colour</label><input type="color" id="pf_tcol" value="${b.text}" style="width:70px;height:36px;padding:0"></div>
         <div><label>Accent colour</label><input type="color" id="pf_acol" value="${b.accent}" style="width:70px;height:36px;padding:0"></div>

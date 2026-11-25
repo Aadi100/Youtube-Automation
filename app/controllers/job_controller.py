@@ -118,10 +118,10 @@ def _check_params(d: dict, uid=None, owner: bool = False) -> tuple:
         w = clipcfg.clean_want(d["want"])
         if w:
             params["want"] = w
-    if d.get("thumb_tier"):                               # the thumbnail level for this video: free | medium | high
+    if d.get("thumb_tier"):                               # the thumbnail level for this video: better | best
         from app.services import thumbnail_service
         thumbnail_service.check_tier(str(d["thumb_tier"]), owner)
-        params["thumb_tier"] = str(d["thumb_tier"])
+        params["thumb_tier"] = thumbnail_service.tg.norm_tier(str(d["thumb_tier"]))
     if str(d.get("thumb_pictures") or "") in ("1", "3"):     # AI pictures for this video's thumbnail: 1, or 3 to choose from in the Thumbnail studio
         params["thumb_pictures"] = int(d["thumb_pictures"])
     if isinstance(d.get("diy"), dict) and d["diy"]:

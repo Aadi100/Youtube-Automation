@@ -40,45 +40,47 @@ def get_brand(uid) -> Dict:
     return {"style": b.get("style") if b.get("style") in thumb_styles.STYLE_IDS else "auto",
             "text": thumb_styles.valid_color(b.get("text"), thumb_styles.DEFAULT_TEXT), "accent": thumb_styles.valid_color(b.get("accent"), thumb_styles.DEFAULT_ACCENT),
             "font": b.get("font") if b.get("font") in thumb_styles.FONTS else thumb_styles.DEFAULT_FONT, "has_logo": tg.logo_path(str(uid)) is not None,
-            "pictures": 3 if int(b.get("pictures") or 1) >= 3 else 1, "tier": b.get("tier") if b.get("tier") in tg.TIERS else "free"}
+            "pictures": 3 if int(b.get("pictures") or 1) >= 3 else 1, "tier": tg.norm_tier(b.get("tier"))}
 
 
-CLAUDE_PLAN_TOKENS = 2600      # about what one High plan + review uses (4 small frames, the facts, a short JSON answer, one look at the result)
+GEMINI_PLAN_TOKENS = 2200      # about what one Best plan uses (3 small frames, the facts, a short JSON answer) - used for the price estimate only
 
 
 def tier_options(is_owner: bool) -> List[Dict]:
-    """The three thumbnail levels: what each does, what it costs at today's prices, and whether this person may use it now."""
+    """The two thumbnail levels: what each does, what it costs at today's prices, and whether this person may use it now."""
+    from app.engine import thumb_best
     from app.services import diy_service
     p, fl = tokens.pricing(), diy_service.flags()
-    gem, cla = bool(os.environ.get("GEMINI_API_KEY")), bool(os.environ.get("ANTHROPIC_API_KEY"))
-    est_hi = p["image_gemini"] + CLAUDE_PLAN_TOKENS / 1000.0 * p["claude_per_1k"]
+    gem, cf = thumb_best.gemini_ready(), thumb_best.cloudflare_ready()
+    est_best = p["image_flux"] + GEMINI_PLAN_TOKENS / 1000.0 * p["gemini_per_1k"]
     off = "The owner has not switched this level on."
-    # the owner is told which service and key is missing; a member only reads what the level does and whether it is available (no service or model names)
-    rows = [("free", "Free", "A free AI picture. The best frame is found by code.", p["image_free"], True, ""),
-            ("medium", "Better", "Gemini redraws the real frame as a dramatic thumbnail picture." if is_owner else "The AI redraws the real frame as a dramatic thumbnail picture.", p["image_gemini"],
-             gem and (is_owner or fl["tier_medium"]),
-             "" if gem and (is_owner or fl["tier_medium"]) else (("Needs the Gemini key." if not gem else off) if is_owner else (off if not fl["tier_medium"] else "Not available right now."))),
-            ("high", "Best", "Claude looks at the best frames and plans the headline, look and scene. Gemini draws it, Claude checks it." if is_owner
-             else "The AI studies the best frames, plans the headline, look and scene, then draws it and checks the result.", est_hi, gem and cla and (is_owner or fl["tier_high"]),
-             "" if gem and cla and (is_owner or fl["tier_high"]) else (("Needs the Claude key (Settings)." if not cla else "Needs the Gemini key." if not gem else off) if is_owner
-                                                                       else (off if not fl["tier_high"] else "Not available right now.")))]
-    return [{"id": i, "name": n, "desc": d, "price": round(pr, 1), "available": bool(ok), "reason": why} for i, n, d, pr, ok, why in rows]
+    allowed = is_owner or fl["tier_high"]
+    # the owner is told which key is missing; a member only reads what the level does and whether it is available (no service or model names)
+    if is_owner:
+        why = "Needs the Gemini key." if not gem else "Needs the Cloudflare account ID and API token (Settings -> Accounts & keys)." if not cf else ""
+    else:
+        why = off if not fl["tier_high"] else ("" if gem and cf else "Not available right now.")
+    rows = [("better", "Better", "A free AI picture behind the real frame. The best frame is found by code and the headline is added by the studio.", p["image_free"], True, ""),
+            ("best", "Best", ("Gemini studies the best frames and plans the thumbnail, then FLUX draws the finished thumbnail with its headline." if is_owner
+                              else "The AI studies the best frames, plans the thumbnail and draws it, headline included."), est_best, gem and cf and allowed, why)]
+    return [{"id": i, "name": n, "desc": d, "price": round(pr, 1), "available": bool(ok), "reason": r} for i, n, d, pr, ok, r in rows]
 
 
 def effective_tier(requested: Optional[str], uid, is_owner: bool) -> str:
     """The level a video really gets: what was asked (else the member's default), never above what they may use now."""
-    want = requested or get_brand(uid)["tier"]
+    want = tg.norm_tier(requested or get_brand(uid)["tier"])
     ok = {t["id"] for t in tier_options(is_owner) if t["available"]}
-    return want if want in ok else ("medium" if want == "high" and "medium" in ok else "free")
+    return want if want in ok else "better"
 
 
 def check_tier(tier: str, is_owner: bool) -> None:
+    tier = tg.norm_tier(tier) if tier in tg.LEGACY or tier in tg.TIERS else tier
     for t in tier_options(is_owner):
         if t["id"] == tier:
             if not t["available"]:
                 raise ValueError(t["reason"] or "That level is not available.")
             return
-    raise ValueError("Choose Free, Better or Best.")
+    raise ValueError("Choose Better or Best.")
 
 
 def save_brand(uid, d: Dict, is_owner: bool = True) -> Dict:
@@ -88,7 +90,7 @@ def save_brand(uid, d: Dict, is_owner: bool = True) -> Dict:
     font = d.get("font") or thumb_styles.DEFAULT_FONT
     if font not in thumb_styles.FONTS:
         raise ValueError("Choose one of the listed fonts.")
-    tier = d.get("tier") or get_brand(uid)["tier"]
+    tier = tg.norm_tier(d.get("tier") or get_brand(uid)["tier"])
     if tier != get_brand(uid)["tier"]:
         check_tier(tier, is_owner)                 # choosing a level you may not use is refused (keeping the one you already had is fine)
     brand = {"style": style, "text": thumb_styles.valid_color(d.get("text"), thumb_styles.DEFAULT_TEXT),

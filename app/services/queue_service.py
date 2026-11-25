@@ -91,9 +91,9 @@ def run_job(mode: str, params: dict, source: str, job_id: str, uid: str = None) 
     try:                                    # the thumbnail level, never above what the member may use right now (the owner may have changed the rules since they chose)
         from app.services import thumbnail_service
         u = User.find_one(id=oid(str(uid))) if uid else None
-        diy_env["THUMB_TIER"] = thumbnail_service.effective_tier(params.get("thumb_tier"), uid, bool(u and u.get("role") == "owner") or not uid) if uid else "free"
+        diy_env["THUMB_TIER"] = thumbnail_service.effective_tier(params.get("thumb_tier"), uid, bool(u and u.get("role") == "owner") or not uid) if uid else "better"
     except Exception:
-        diy_env["THUMB_TIER"] = "free"
+        diy_env["THUMB_TIER"] = "better"
     # child must re-read .env itself (dotenv won't override variables inherited from us)
     env = {k: v for k, v in os.environ.items() if k not in SETTINGS}
     manifest = OUTPUT_DIR / "runs" / f"{job_id}.json"

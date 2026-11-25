@@ -154,15 +154,23 @@ def _rounded_card(frame: Image.Image, size: Tuple[int, int], border: int = 8, ra
     return out
 
 
-TIERS = ("free", "medium", "high")
+TIERS = ("better", "best")
+LEGACY = {"free": "better", "medium": "better", "high": "best"}      # the older level names (saved settings, queued videos) still work
+
+
+def norm_tier(t: Optional[str]) -> str:
+    t = (t or "").strip().lower()
+    t = LEGACY.get(t, t)
+    return t if t in TIERS else "better"
 
 
 def tier_of(requested: Optional[str] = None, brand: Optional[dict] = None) -> str:
-    """The level for this thumbnail: this run's choice, else the member's setting, else free. Medium and High need their keys."""
-    t = (requested or os.environ.get("THUMB_TIER") or (brand or {}).get("tier") or "free").strip().lower()
-    t = t if t in TIERS else "free"
-    if t in ("medium", "high") and not os.environ.get("GEMINI_API_KEY"):
-        return "free"
+    """The level for this thumbnail: this run's choice, else the member's setting, else Better. Best needs the Gemini key and the FLUX (Cloudflare) keys."""
+    t = norm_tier(requested or os.environ.get("THUMB_TIER") or (brand or {}).get("tier"))
+    if t == "best":
+        from app.engine import thumb_best
+        if not thumb_best.ready():
+            return "better"
     return t
 
 
@@ -185,9 +193,9 @@ def generate_thumbnail(
     context: Optional[dict] = None,
 ) -> Path:
     """High-CTR thumbnail: artwork as the background, the real video frame as a framed card, a big headline that always fits, a game badge.
-    Three levels. free: a free AI image, the best frame found by code. medium: Gemini redraws the real frame as a dramatic picture.
-    high: Claude looks at the best frames and plans the thumbnail (frame, headline, look, colours, scene), Gemini draws it, Claude checks it once.
-    Every failure falls back one level down. Falls back to the video frame if there is no AI art."""
+    Two levels. better: a free AI image behind the real frame, the best frame found by code, the headline drawn by code.
+    best: Gemini looks at the best frames and plans the thumbnail (frame, headline, look, scene), FLUX draws the finished thumbnail (headline included, or the
+    picture only when THUMB_TEXT=code), and Gemini can check the result once (THUMB_REVIEW=on). Every failure falls back to Better. Falls back to the video frame if there is no AI art."""
     from app.engine import playbook, thumb_styles
     target_size = (1280, 720) if mode == "16:9" else (1080, 1920)
     W, H = target_size
@@ -198,19 +206,20 @@ def generate_thumbnail(
     brand = brand_of(uid)
     recipe = playbook.recipe_for(content_type)               # what popular thumbnails of this kind of video look like (measured once, kept as numbers)
     tier = tier_of(tier, brand)
+    requested_tier = tier
     ctx = {**(context or {}), "game": game_name or subtext, "content_type": content_type}
 
-    # 0. High: Claude plans it (the plan is checked; if Claude is not available the level drops to Medium)
+    # 0. Best: Gemini plans it (the plan is checked; if Gemini cannot, the level drops to Better)
     plan = None
-    if tier == "high" and video_path and Path(video_path).exists():
+    if tier == "best" and video_path and Path(video_path).exists():
         try:
-            from app.engine import thumb_planner
-            plan = thumb_planner.plan(Path(video_path), ctx, recipe)
+            from app.engine import thumb_best
+            plan = thumb_best.plan(Path(video_path), ctx, recipe)
         except Exception as e:
-            print(f"[Thumbnail] Claude plan failed: {e}")
+            print(f"[Thumbnail] Gemini plan failed: {e}")
         if not plan:
-            tier = "medium"
-            print("[Thumbnail] High level not available this time - using Medium")
+            tier = "better"
+            print("[Thumbnail] Best level not available this time - using Better")
     if plan:
         scene = plan.get("scene") or scene
         headline = plan.get("headline") or headline
@@ -240,10 +249,6 @@ def generate_thumbnail(
             if frame.height > frame.width * 1.4:   # a finished vertical Short: keep only its sharp middle band, not the blurred bars
                 frame = frame.crop((0, int(frame.height * 0.34), frame.width, int(frame.height * 0.66)))
             frame = frame.crop((0, 0, frame.width, int(frame.height * 0.82)))   # drop the bottom: creators' own subtitles and watermarks live there
-            if tier != "free":                     # Gemini redraws the real frame: it is the reference picture
-                ref = frame.copy()
-                ref.thumbnail((768, 768))
-                ref.save(ref_file, "JPEG", quality=85)
         except Exception:
             frame = None
         finally:
@@ -251,22 +256,43 @@ def generate_thumbnail(
     art = None
     art_file = output_path.parent / f"{output_path.stem}_ai.jpg"
     n_pics = pictures_wanted(brand)
-    ref = ref_file if ref_file.is_file() else None
+    ref = None
+    flux_headline = headline
     try:
         from app.engine.ai_art import generate_background
         if background_image and Path(background_image).exists():
             art = Image.open(background_image).convert("RGB")
         else:
-            got = generate_background(game_name or subtext, mode, art_file, scene=scene, ref=ref, tier=tier)
+            got = None
+            if tier == "best":                        # FLUX draws it (the headline is part of the picture unless the setting says the studio writes it)
+                from app.engine import thumb_best
+                with_text = not thumb_best.text_by_code()
+                got = thumb_best.draw(thumb_best.build_prompt(game_name or subtext, scene, headline, mode, with_text), art_file, mode)
+                if got and with_text and thumb_best.review_on():
+                    better = thumb_best.review(got, headline, ctx)           # optional: Gemini checks the printed headline once
+                    if better:
+                        again = thumb_best.draw(thumb_best.build_prompt(game_name or subtext, scene, better, mode, True), art_file, mode)
+                        if again:
+                            got, flux_headline = again, better
+                if not got:
+                    tier = "better"
+                    print("[Thumbnail] FLUX could not draw it this time - using Better")
+            if not got:
+                got = generate_background(game_name or subtext, mode, art_file, scene=scene, ref=ref, tier=tier)
             if got:
                 art = Image.open(got).convert("RGB")
                 art.load()
-                art = art.crop((0, 0, art.width, int(art.height * 0.94)))   # trims the free service's corner watermark
+                if tier != "best":
+                    art = art.crop((0, 0, art.width, int(art.height * 0.94)))   # trims the free service's corner watermark
                 if art_stem is not None and n_pics > 1:    # the member asked for 3 pictures to choose from: keep them next to the video
                     shutil.copyfile(got, slot_of(art_stem, 1))
                     for i in range(2, n_pics + 1):
                         try:
-                            generate_background(game_name or subtext, mode, slot_of(art_stem, i), scene=scene, ref=ref, tier=tier)
+                            if tier == "best":
+                                from app.engine import thumb_best
+                                thumb_best.draw(thumb_best.build_prompt(game_name or subtext, scene, flux_headline, mode, not thumb_best.text_by_code()), slot_of(art_stem, i), mode)
+                            else:
+                                generate_background(game_name or subtext, mode, slot_of(art_stem, i), scene=scene, ref=ref, tier=tier)
                         except Exception as e:
                             print(f"[Thumbnail] extra picture {i} skipped: {e}")
     except Exception as e:
@@ -274,6 +300,15 @@ def generate_thumbnail(
     finally:
         art_file.unlink(missing_ok=True)
         ref_file.unlink(missing_ok=True)
+
+    # Best with FLUX writing the headline: the picture IS the thumbnail
+    if tier == "best" and art is not None and not background_image:
+        from app.engine import thumb_best
+        if not thumb_best.text_by_code():
+            art.save(output_path, "JPEG", quality=94)
+            LAST.update({"style": None, "recipe": content_type if recipe else None, "tier": "best", "headline": flux_headline})
+            print(f"[Thumbnail] Generated {mode} thumbnail (best, FLUX): {output_path}")
+            return output_path
 
     # 2. the look: the member's own settings win, then Claude's plan, then the recipe for this kind of video
     p = plan or {}
@@ -292,9 +327,9 @@ def generate_thumbnail(
     try:
         img = draw(headline)
         img.save(output_path, "JPEG", quality=94)
-        if plan:                                  # Claude looks at the finished thumbnail once and may fix a weak headline
-            from app.engine import thumb_planner
-            better = thumb_planner.review(output_path, headline, ctx)
+        if plan and tier == "best":               # Best with the studio writing the headline: Gemini may check the finished thumbnail once (optional)
+            from app.engine import thumb_best
+            better = thumb_best.review(output_path, headline, ctx) if thumb_best.review_on() else None
             if better:
                 headline = playbook.headline_for(recipe, better)
                 img = draw(headline)
@@ -304,9 +339,9 @@ def generate_thumbnail(
     LAST["style"] = style
     LAST["recipe"] = content_type if recipe else None
     from app.engine import ai_art as _art
-    used = tier if (tier == "free" or (art is not None and (_art.LAST_PROVIDER.get("name") == "gemini" or background_image))) else "free"
-    if tier != "free" and used == "free":
-        print(f"[Thumbnail] the {tier} level could not be used this time (the picture came from the free service); it is recorded and billed as Free")
+    used = "best" if (tier == "best" and art is not None) else "better"
+    if used == "better" and requested_tier == "best":
+        print("[Thumbnail] the Best level could not be used this time (the picture came from the free service); it is recorded and billed as Better")
     LAST["tier"] = used
     LAST["headline"] = headline
     print(f"[Thumbnail] Generated {mode} thumbnail ({style}, {tier}, {'AI art' if art is not None else 'video frame'}): {output_path}")

@@ -22,9 +22,10 @@ from app.models import Job, System, TokenLedger, UsageEvent, User, Video, now, o
 DEFAULT_PRICING = {
     "gemini_per_1k": 2.0,            # Gemini text and image-review calls (input + output)
     "deepseek_per_1k": 1.0,          # DeepSeek text calls (input + output)
-    "claude_per_1k": 3.5,            # Claude, the High thumbnail level: it looks at frames and plans the thumbnail (input + output)
-    "image_free": 1.0,               # one background image from the free image service
-    "image_gemini": 5.0,             # one background image from Gemini
+    "claude_per_1k": 3.5,            # Claude (titles and descriptions when it is the chosen writer): input + output
+    "image_free": 1.0,               # the Better thumbnail level: one background image from the free image service
+    "image_flux": 2.0,               # the Best thumbnail level: one finished thumbnail drawn by FLUX (Gemini's planning is charged on top, per 1,000 AI tokens)
+    "image_gemini": 5.0,             # one background image from Gemini (only when the Better level uses the Gemini image service in Settings)
     "tts_per_1k_chars": 0.0,         # narrator voice, per 1,000 characters (free service; raise it if you want to charge for server time)
     "whisper_per_min": 0.0,          # captions: per minute of speech transcribed (runs on your server)
     "safety_local_per_clip": 0.0,    # the local nudity detector, per clip checked (runs on your server)
@@ -76,7 +77,7 @@ def set_pricing(data: Dict) -> Dict:
 
 
 # What the services really charge the owner, in US dollars (the owner types these in; 0 = not entered / free tier). Used for records only.
-REAL_COST_KEYS = ["gemini_in_per_1m", "gemini_out_per_1m", "deepseek_in_per_1m", "deepseek_out_per_1m", "claude_in_per_1m", "claude_out_per_1m", "claude_search_usd", "image_gemini_usd", "image_free_usd", "token_usd"]
+REAL_COST_KEYS = ["gemini_in_per_1m", "gemini_out_per_1m", "deepseek_in_per_1m", "deepseek_out_per_1m", "claude_in_per_1m", "claude_out_per_1m", "claude_search_usd", "image_gemini_usd", "image_free_usd", "image_flux_usd", "token_usd"]
 TOKEN_USD_DEFAULT = 0.01      # what one studio token is worth in dollars (the owner sets it: it turns tokens billed into revenue)
 
 
@@ -105,7 +106,7 @@ def usd_of(kind: str, provider: str, tin: int, tout: int, units: float, r: Dict)
                 else (r["deepseek_in_per_1m"], r["deepseek_out_per_1m"]))
         return tin / 1e6 * a + tout / 1e6 * b
     if kind == "image":
-        return units * (r["image_gemini_usd"] if provider == "gemini" else r["image_free_usd"])
+        return units * (r["image_gemini_usd"] if provider == "gemini" else r["image_flux_usd"] if provider == "flux" else r["image_free_usd"])
     if kind == "web_search":
         return units * r["claude_search_usd"]
     return 0.0
@@ -156,7 +157,7 @@ def price_event(e: Dict, p: Dict) -> float:
         per = p["gemini_per_1k"] if prov == "gemini" else p["claude_per_1k"] if prov == "claude" else p["deepseek_per_1k"]
         return (int(e.get("tokens_in") or 0) + int(e.get("tokens_out") or 0)) / 1000.0 * per
     if k == "image":
-        return float(e.get("units") or 1) * (p["image_gemini"] if prov == "gemini" else p["image_free"])
+        return float(e.get("units") or 1) * (p["image_gemini"] if prov == "gemini" else p["image_flux"] if prov == "flux" else p["image_free"])
     if k == "tts":
         return float(e.get("units") or 0) / 1000.0 * p["tts_per_1k_chars"]
     if k == "whisper":
@@ -177,7 +178,7 @@ def price_event(e: Dict, p: Dict) -> float:
 _LINES = {
     ("llm", "gemini"): ("AI text and safety review (Gemini)", "AI tokens"), ("llm", "deepseek"): ("AI text (DeepSeek)", "AI tokens"),
     ("llm", "claude"): ("Titles and thumbnails (Claude)", "AI tokens"),
-    ("image", "gemini"): ("Images (Gemini)", "images"), ("image", "free"): ("Images (free service)", "images"),
+    ("image", "gemini"): ("Images (Gemini)", "images"), ("image", "free"): ("Images (free service)", "images"), ("image", "flux"): ("Images (Best thumbnail)", "images"),
     ("tts", ""): ("Narrator voice", "characters"), ("whisper", ""): ("Captions (speech to text)", "minutes"),
     ("safety_local", ""): ("Local safety check", "clips"),
     ("search", ""): ("Finding the clip", "clips"), ("render", "short"): ("Video rendering", "videos"), ("render", "compilation"): ("Video rendering", "videos"),

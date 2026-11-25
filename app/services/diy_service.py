@@ -17,8 +17,7 @@ FLAGS = {"own_metadata": "Members may write their own title, description and tag
          "own_source": "Members may pick their own YouTube clip and the part of it",
          "ai_choice": "Members may choose which AI writes (cheaper or better, or none)",
          "pick_creator": "Members may choose a Twitch or YouTube creator to take clips from",
-         "tier_medium": "Members may use the Medium thumbnail level (Gemini redraws the real frame; costs tokens)",
-         "tier_high": "Members may use the High thumbnail level (Claude plans it, Gemini draws it; costs more tokens)",
+         "tier_high": "Members may use the Best thumbnail level (Gemini plans it and FLUX draws it; costs more tokens)",
          "research": "Members may use the clipping research (Claude searches the web; the cost is yours, not billed in tokens)"}
 DEFAULT_OFF = {"pick_creator", "tier_high", "research"}          # a named creator is a bigger copyright risk than a game search, so the owner switches it on
 AI_CHOICES = ("budget", "balanced", "quality", "off")

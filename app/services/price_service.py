@@ -88,6 +88,8 @@ def suggest(costs: Dict, token_usd: float, margin_pct: float, mix: Dict) -> Dict
             out[key] = max(0.01, _ceil(c * m / token_usd))
     if float(costs.get("image_gemini_usd") or 0) > 0:
         out["image_gemini"] = max(0.01, _ceil(float(costs["image_gemini_usd"]) * m / token_usd))
+    if float(costs.get("image_flux_usd") or 0) > 0:
+        out["image_flux"] = max(0.01, _ceil(float(costs["image_flux_usd"]) * m / token_usd))
     return out
 
 
