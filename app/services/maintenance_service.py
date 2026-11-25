@@ -69,6 +69,11 @@ def maintenance() -> None:
             System.set_fields(f"worker:{WORKER_ID}", t=time.time(), running=len(RUNNING), max=MAX_JOBS, role=ROLE, upsert=True)
             if not System.acquire_lease("maintenance", WORKER_ID, 60):
                 continue
+            try:
+                from app.services.upload_service import repush_due
+                repush_due()
+            except Exception as e:
+                print(f"[studio] thumbnail check error: {e}")
             stuck = requeue_stuck_uploads()
             if stuck:
                 print(f"[studio] {stuck} upload(s) were interrupted by a restart and are back in the queue")

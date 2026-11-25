@@ -297,6 +297,29 @@ def upload_video(user_id, path: Path, title: str, description: str, tags: List[s
                 pass
 
 
+def processing_state(user_id, video_id: str) -> str:
+    """Has YouTube finished processing the upload? 'ready', 'processing', 'failed' or 'unknown'. A thumbnail set while the video is still processing can be replaced
+    by an automatic frame when the processing ends, so the studio sets it again once the video is ready. Costs 1 unit of the shared pool."""
+    try:
+        token = access_token(user_id)
+        r = requests.get(f"{API}/videos", params={"part": "status,processingDetails", "id": video_id}, headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        if r.status_code != 200:
+            return "unknown"
+        quota_use(UNITS["list"])
+        items = r.json().get("items") or []
+        if not items:
+            return "unknown"
+        st = (items[0].get("status") or {}).get("uploadStatus", "")
+        pd = (items[0].get("processingDetails") or {}).get("processingStatus", "")
+        if st in ("failed", "rejected") or pd == "failed":
+            return "failed"
+        if st == "processed" and pd in ("", "succeeded"):
+            return "ready"
+        return "processing"
+    except Exception:
+        return "unknown"
+
+
 def set_thumbnail(user_id, video_id: str, image: Path) -> None:
     token = access_token(user_id)
     r = requests.post(f"{UPLOAD}/thumbnails/set", params={"videoId": video_id, "uploadType": "media"}, data=Path(image).read_bytes(), timeout=120,

@@ -189,9 +189,64 @@ def publish_video(doc: dict) -> tuple:
     return True, "Published - the video is now Public."
 
 
+REPUSH_AFTER = (240, 1500)      # seconds after the upload: set the thumbnail again when YouTube has finished processing (the first one can be replaced by an automatic frame)
+REPUSH_WAIT = 300               # while YouTube is still processing: look again after this many seconds
+
+
+def _schedule_repush(doc: dict) -> None:
+    """Remember to set the thumbnail again soon: a thumbnail put on a video that YouTube is still processing is often replaced by an automatic frame at the end."""
+    if doc.get("thumb_repush_at") or int(doc.get("thumb_repush_n") or 0) >= len(REPUSH_AFTER):
+        return
+    Video.update_where(id=doc["_id"], fields={"thumb_repush_at": time.time() + REPUSH_AFTER[0], "thumb_repush_n": 0, "thumb_wait_n": 0})
+
+
+def repush_due() -> int:
+    """Set the thumbnail again on videos whose time has come (called often by the maintenance loop; cheap when nothing is due). Returns how many were pushed."""
+    ids = [v.id for v in Video.objects(__raw__={"thumb_repush_at": {"$lte": time.time(), "$ne": None}}).only("id").limit(5)]
+    done = 0
+    for vid in ids:
+        d = Video.find_one(id=vid)
+        if not d or not d.get("thumb_repush_at"):
+            continue
+        n, waited = int(d.get("thumb_repush_n") or 0), int(d.get("thumb_wait_n") or 0)
+        claimed = Video.objects(id=d["_id"], thumb_repush_at=d["thumb_repush_at"]).update_one(set__thumb_repush_at=time.time() + 600)       # one worker takes it
+        if not claimed:
+            continue
+        yt = d.get("youtube_id") or ""
+        if not re.fullmatch(r"[\w-]{11}", yt) or d.get("status") == "discarded":
+            Video.update_where(id=d["_id"], unset=("thumb_repush_at",))
+            continue
+        try:
+            if _direct(d):
+                if youtube_api.quota_left() < youtube_api.UNITS["thumbnail"] + 20:       # the day's shared pool is nearly used: try again later
+                    Video.update_where(id=d["_id"], fields={"thumb_repush_at": time.time() + 3600})
+                    continue
+                state = youtube_api.processing_state(d["user_id"], yt)
+                if state == "processing" and waited < 6:
+                    Video.update_where(id=d["_id"], fields={"thumb_repush_at": time.time() + REPUSH_WAIT, "thumb_wait_n": waited + 1})
+                    continue
+        except Exception:
+            pass
+        ok, msg = push_thumbnail(Video.find_one(id=d["_id"]))
+        done += 1
+        n += 1
+        if n < len(REPUSH_AFTER):
+            Video.update_where(id=d["_id"], fields={"thumb_repush_at": time.time() + REPUSH_AFTER[n] - REPUSH_AFTER[n - 1], "thumb_repush_n": n, "thumb_wait_n": 0})
+        else:
+            Video.update_where(id=d["_id"], unset=("thumb_repush_at",), fields={"thumb_repush_n": n})
+        print(f"[studio] thumbnail set again for {yt} ({n} of {len(REPUSH_AFTER)}): {'ok' if ok else msg[:120]}", flush=True)
+    return done
+
+
 def push_thumbnail(doc: dict) -> tuple:
-    """Put the AI thumbnail on the video on YouTube (n8n holds the YouTube login). Safe to call more than once."""
+    """Put the AI thumbnail on the video on YouTube (n8n holds the YouTube login). Safe to call more than once.
+    The same thumbnail is put on again a few minutes later, when YouTube has finished processing the video."""
     yt = doc.get("youtube_id") or ""
+    if re.fullmatch(r"[\w-]{11}", yt):
+        try:
+            _schedule_repush(doc)
+        except Exception:
+            pass
     if not _direct(doc) and not _owners_video(doc):
         return False, "Connect your own YouTube channel first."
     if not re.fullmatch(r"[\w-]{11}", yt):
