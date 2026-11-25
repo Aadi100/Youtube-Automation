@@ -176,7 +176,7 @@ def price_event(e: Dict, p: Dict) -> float:
 
 _LINES = {
     ("llm", "gemini"): ("AI text and safety review (Gemini)", "AI tokens"), ("llm", "deepseek"): ("AI text (DeepSeek)", "AI tokens"),
-    ("llm", "claude"): ("Thumbnail art direction (Claude)", "AI tokens"),
+    ("llm", "claude"): ("Titles and thumbnails (Claude)", "AI tokens"),
     ("image", "gemini"): ("Images (Gemini)", "images"), ("image", "free"): ("Images (free service)", "images"),
     ("tts", ""): ("Narrator voice", "characters"), ("whisper", ""): ("Captions (speech to text)", "minutes"),
     ("safety_local", ""): ("Local safety check", "clips"),

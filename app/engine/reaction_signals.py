@@ -154,6 +154,14 @@ def picture_signals(video: Path, fps: float = 3.0, faces_on: bool = True) -> Dic
     """What the camera picture shows in a short clip: {face: share of frames with a face, smile, jolt, action} (all 0..1). Face numbers are None without a face camera
     (or when faces_on is False, which skips the face search and only measures sudden screen changes)."""
     import cv2
+    if faces_on:                                   # the better way: a face finder + an expression reader (app/engine/face_signals.py)
+        try:
+            from app.engine import face_signals
+            fs = face_signals.clip_signals(video, fps)
+            if fs is not None:
+                return {"face": fs["face"], "smile": fs["smile"], "jolt": fs["jolt"], "action": fs["action"]}
+        except Exception:
+            pass                                   # anything unexpected: the old method below
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
         return {"face": 0.0, "smile": None, "jolt": None, "action": 0.0}

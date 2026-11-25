@@ -73,7 +73,16 @@ def frame_candidates(video: Path, samples: int = 16, lo: float = 0.12, hi: float
             sat, val = float(hsv[..., 1].mean()), float(hsv[..., 2].mean())
             motion = float(np.abs(gray.astype("int16") - prev).mean()) if prev is not None else 0.0
             prev = gray.astype("int16")
-            faces = cas.detectMultiScale(gray, 1.15, 5, minSize=(24, 24))
+            faces = None
+            try:
+                from app.engine import face_signals
+                fd = face_signals.detect(small, max_side=480)
+                if fd is not None:
+                    faces = [(f["x"], f["y"], f["w"], f["h"]) for f in fd if f["w"] >= 20]
+            except Exception:
+                faces = None
+            if faces is None:
+                faces = cas.detectMultiScale(gray, 1.15, 5, minSize=(24, 24))
             face = max((fw * fh for _, _, fw, fh in faces), default=0) / float(gray.shape[0] * gray.shape[1])
             out.append({"t": round(t, 2), "sharp": sharp, "sat": sat, "val": val, "motion": motion, "face": float(face)})
     finally:

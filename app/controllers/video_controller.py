@@ -82,7 +82,8 @@ def h_video_reveal(h, vid):
 
 
 def h_video_patch(h, vid):
-    if not _video_for(h, vid):
+    before = _video_for(h, vid)
+    if not before:
         return h.send_json(404, {"error": "not found"})
     data, upd = h.body_json(), {}
     for k in ("title", "description", "notes", "privacy_status", "youtube_id"):
@@ -101,6 +102,9 @@ def h_video_patch(h, vid):
         raise ValueError("nothing to update")
     if not Video.update_where(id=oid(vid), fields=upd):
         return h.send_json(404, {"error": "not found"})
+    if "title" in upd or "description" in upd:
+        from app.services import lab_service
+        lab_service.note_edit(before, upd)           # Learning Lab: what the owner wrote by hand is an example of what the owner wants
     h_video(h, vid)
 
 

@@ -33,6 +33,11 @@ KNOWN_MODELS = [("claude-fable-5-2", "Claude Fable 5.2"), ("claude-opus-5-5", "C
 _models_cache: Dict = {"at": 0.0, "key": "", "list": []}
 
 
+def title_model() -> str:
+    """The model that writes titles and descriptions (ANTHROPIC_TITLE_MODEL); the general Claude model when it is empty."""
+    return (os.environ.get("ANTHROPIC_TITLE_MODEL") or model()).strip()
+
+
 def research_model() -> str:
     return (os.environ.get("ANTHROPIC_RESEARCH_MODEL") or model()).strip()
 
@@ -87,12 +92,12 @@ def image_block(path: Path, longest: int = 512) -> Dict:
     return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": base64.b64encode(buf.getvalue()).decode()}}
 
 
-def ask(task: str, system: str, content: List[Dict], max_tokens: int = 700, timeout: int = 60) -> str:
+def ask(task: str, system: str, content: List[Dict], max_tokens: int = 700, timeout: int = 60, model_id: str = "", temperature: float = 0.4) -> str:
     """One Claude call. Returns the answer text; raises RuntimeError with a plain message. Records the real token usage."""
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
         raise RuntimeError("no Claude key")
-    body = {"model": model(), "max_tokens": int(max_tokens), "temperature": 0.4, "system": system, "messages": [{"role": "user", "content": content}]}
+    body = {"model": model_id or model(), "max_tokens": int(max_tokens), "temperature": temperature, "system": system, "messages": [{"role": "user", "content": content}]}
     last = ""
     for attempt in range(2):
         try:

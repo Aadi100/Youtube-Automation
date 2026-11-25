@@ -139,8 +139,17 @@ def find_face(path: Path, duration: float, samples: int = 8) -> Optional[Dict]:
             if not ok:
                 continue
             h, w = frame.shape[:2]
-            gray = cv2.equalizeHist(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
-            faces = cas.detectMultiScale(gray, 1.15, 5, minSize=(max(36, h // 16), max(36, h // 16)))
+            faces = []
+            try:
+                from app.engine import face_signals
+                fd = face_signals.detect(frame)
+                if fd is not None:                 # the better face finder (face_signals.py); None means it is not available
+                    faces = [(int(f["x"]), int(f["y"]), int(f["w"]), int(f["h"])) for f in fd if f["w"] >= max(36, h // 16)]
+                else:
+                    raise RuntimeError("fallback")
+            except Exception:
+                gray = cv2.equalizeHist(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+                faces = cas.detectMultiScale(gray, 1.15, 5, minSize=(max(36, h // 16), max(36, h // 16)))
             if len(faces):
                 x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
                 found.append(((x + fw / 2) / w, (y + fh / 2) / h, fw / w, fh / h))

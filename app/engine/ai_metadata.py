@@ -54,6 +54,7 @@ def generate_seo_metadata(
     game: Optional[Dict] = None,
     credits: Optional[List[Dict]] = None,
     context: str = "",
+    extra_examples: Optional[List[str]] = None,
 ) -> Dict:
     """Title, description (hook, story, comment question, credits + links), tags and thumbnail text/scene for one video.
     `context` = what really happens in the clip (AI hook + spoken words) so the packaging is specific, never invented."""
@@ -71,47 +72,56 @@ def generate_seo_metadata(
 
     title = tags = short_hook = thumb_headline = about = question = thumb_scene = None
     own_title = (os.environ.get("DIY_TITLE") or "").strip()      # the member wrote their own: no AI call, no tokens
-    if not own_title and (api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("DEEPSEEK_API_KEY")):
+    if not own_title and (api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")):
         try:
             from app.engine import llm
             n_words = "35-60" if video_type == "short" else "60-100"
-            prompt = f"""You are a top YouTube growth strategist for a gaming channel about {gname}. Write the packaging for ONE {video_type.upper()}.
+            from app.engine import title_style as TS
+            from app.services import lab_service as LAB
+            lab_titles = LAB.examples_for_prompt("title") + list(extra_examples or [])          # the owner's own liked titles (Learning Lab, when on)
+            lab_desc = LAB.examples_for_prompt("description", 4)
+            desc_block = ("How this channel's descriptions sound (copy the voice, never the words):" + chr(10) + chr(10).join("- " + d for d in lab_desc) + chr(10) + chr(10)) if lab_desc else ""
+            prompt = f"""You write the YouTube title and description for ONE {video_type.upper()} on a channel about {gname}. People see the title and thumbnail in a feed and decide in one second.
 
-WHAT REALLY HAPPENS IN IT (use concrete details from this, NEVER invent events):
+WHAT REALLY HAPPENS (facts you may use; NEVER invent events, names, numbers or quotes):
 {detail}
-Original upload title: "{topic}". Featured creator(s): {who}.
+The original upload was called: "{topic}" (use it only for facts, do not copy its words). Creator: {who} (viewers do not know this name, so it does not belong in the title).
 
-TITLES - write 5 different candidates:
-- 40 to 60 characters (never more than 65).
-- Lead with the most intriguing detail or strongest emotion and open a curiosity gap that the video pays off.
-- Be specific (what exactly happens) instead of vague words like "insane" or "crazy" alone.
-- Put the game name "{gname}" (or its everyday name) naturally in the first half, for search.
-- At most ONE word in ALL CAPS, at most one emoji, no hashtags, never "you won't believe".
+TITLES: write 10 different ones. For each give "style" and "score" (1-10, an honest guess of how much a stranger would want to click).
+- 35 to 58 characters. One clear moment and one specific detail (an object, a number, a line, a place), written the way a person would say it, not like a news report.
+- Open a question in the viewer's head that the video answers. Show the stakes, the reaction or the twist, but do not give away the ending.
+- Mix these styles: "question", "reaction" (what the player did or said), "stakes" (what could go wrong), "contrast" (what was expected vs what happened), "pov", "wait" (builds anticipation).
+- Not allowed: insane, crazy, unbelievable, epic, wild, chaos, goes feral, "you won't believe", "must watch", "best ever", hashtags, more than one emoji, more than one ALL-CAPS word, the creator's name.
+- The game name "{gname}" (or its everyday name) may appear in some titles, only where it sounds natural, and not always in the same place.
 - Never claim anything that is not in the clip (no fake leaks, release dates or spoilers).
-- Make the 5 genuinely different angles (reaction, question, shock, humour, stakes). "best" = the index (0-4) of the one most likely to get clicked.
+- The clip belongs to another creator. Write about the player from the outside ("He...", "She...", "They...", or a question to the viewer). NEVER as the player: no "I", "my", "me", "we", "our".
+Feel of titles that work (copy the feel, never the words):
+{TS.examples_block(lab_titles)}
 
-Also write:
-- "short_hook": ONE sentence under 110 characters that opens the description: the moment + a reason to watch.
-- "about": {n_words} words telling what happens and why it is worth watching, natural keywords for {gname}, no hashtags, no emojis, never copy the creator's words.
-- "question": ONE short question that makes viewers comment (a take, a vote, or "would you have...?").
+{desc_block}DESCRIPTION
+- "short_hook": ONE sentence under 110 characters. It is the first thing read in search, so it must state the moment clearly on its own. Written about the player from the outside, never as "I" or "we".
+- "about": {n_words} words in plain, natural speech: what happens, in order, with the concrete details. No filler such as "worth watching", "watch to see", "in this clip", "a clip where", "the chaos", "hilarious". No hashtags, no emojis. Do not repeat the hook word for word and never copy the creator's own words.
+- "question": ONE short question that is specific to this moment and easy to answer in a comment (a choice, a vote, or "would you have...?").
 - "tags": 12-15 search phrases people type about this ({gname}, the situation, the creator); no # characters.
-- "thumb_headline": 2-4 words, ALL CAPS, max 20 characters, an emotion or curiosity trigger that is NOT the same as the title (examples of the style: "NO WAY!", "HE PANICKED", "WAIT FOR IT", "WORST MISTAKE").
+- "thumb_headline": 2-4 words, ALL CAPS, max 20 characters, an emotion or curiosity trigger that is NOT the same as the title (style: "NO WAY!", "HE PANICKED", "WAIT FOR IT", "WORST MISTAKE").
 - "thumb_scene": ONE sentence describing a vivid, colourful background picture that matches the moment (setting, action, mood, lighting). No text, no real people, no names.
 
-Return ONLY a JSON object with the keys: titles (array of 5 strings), best (integer), short_hook, about, question, tags (array), thumb_headline, thumb_scene."""
+Return ONLY a JSON object with the keys: titles (array of 10 objects {{"t": "...", "style": "...", "score": 7}}), short_hook, about, question, tags (array), thumb_headline, thumb_scene."""
             text = llm.generate("metadata", prompt, json_mode=True, timeout=90).strip()
             text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
             data = json.loads(text)
-            titles = [_clean_title(t) for t in (data.get("titles") or []) if _clean_title(t)]
-            if titles:
-                best = data.get("best")
-                pick = titles[best] if isinstance(best, int) and 0 <= best < len(titles) else titles[0]
-                title = pick if len(pick) <= 70 else next((t for t in titles if len(t) <= 65), pick[:67].rstrip() + "...")
-            elif data.get("title"):
-                title = _clean_title(data["title"])
+            picked, rows = TS.pick_title(data.get("titles") or ([data["title"]] if data.get("title") else []), streamers, gname, bonus=LAB.title_bonus_fn())
+            LAB.log("title", {"picked": picked, "rows": [{k: r.get(k) for k in ("title", "style", "rules", "ai", "lab", "total")} for r in rows[:10]]})
+            if picked:
+                title = picked if len(picked) <= 70 else picked[:67].rstrip() + "..."
+                print("[AI Metadata] titles: " + " | ".join(f"{r['total']} {r['title']}" for r in rows[:4]), flush=True)
             tags = data.get("tags")
-            short_hook, about, question = data.get("short_hook"), data.get("about"), data.get("question")
+            short_hook, about, question = TS.clean_hook(data.get("short_hook") or ""), TS.clean_about(data.get("about") or ""), data.get("question")
+            if not short_hook and about:                        # the hook was filler: the first sentence of the story takes its place
+                first = about.replace("\n", " ").split(". ")[0].strip(". ")
+                short_hook = (first + ".")[:140]
             thumb_headline, thumb_scene = data.get("thumb_headline"), data.get("thumb_scene")
+            LAB.log("description", {"hook": short_hook, "about": about, "question": question})
         except Exception as e:
             print(f"[AI Metadata] AI call failed ({e}). Using templates.")
 
@@ -135,8 +145,6 @@ Return ONLY a JSON object with the keys: titles (array of 5 strings), best (inte
     for t in game_tags:  # the game's own hashtags always come first
         if t.lower() not in [x.lower() for x in tags]:
             tags.insert(0, t)
-    if video_type == "short":
-        title = f"{title} #Shorts"
 
     uniq, seen_tags = [], set()
     for t in game_tags + tags:  # no repeated hashtags

@@ -38,7 +38,7 @@ MAX_UPLOAD = 60 * 1024 * 1024
 
 # settings editable from the dashboard (secret values are never sent back to the browser)
 SETTINGS = {
-    "TWITCH_CLIENT_ID": False, "TWITCH_CLIENT_SECRET": True, "YTDLP_PROXY": True,
+    "TWITCH_CLIENT_ID": False, "TWITCH_CLIENT_SECRET": True, "YTDLP_PROXY": True, "TITLE_AI": False, "ANTHROPIC_TITLE_MODEL": False, "SOUND_PEAKS": False,
     "YOUTUBE_API_KEY": True, "GEMINI_API_KEY": True, "ANTHROPIC_API_KEY": True, "ANTHROPIC_MODEL": False, "ANTHROPIC_RESEARCH_MODEL": False, "RESEARCH_PROVIDER": False, "TAVILY_API_KEY": True, "BRAVE_API_KEY": True, "DEEPSEEK_API_KEY": True, "DEEPSEEK_MODEL": False, "LLM_SPLIT": False, "GEMINI_MODEL": False, "CONTACT_EMAIL": False, "TTS_VOICE": False,
     "SAFETY_AI_FRAMES": False, "SAFETY_AI_WIDTH": False, "SAFETY_FINAL_AI": False, "CLIP_COUNTRIES": False, "CLIP_LANGUAGES": False, "LIVE_WATCH_MINUTES": False, "LIVE_STREAMS": False, "AI_THUMBNAILS": False, "AI_IMAGE_PROVIDER": False, "DEFAULT_AUDIO_MODE": False, "SAFE_MODE": False,
     # email notifications (SMTP)
@@ -71,7 +71,7 @@ TWITCH_STATUSES = {"pending", "uploaded", "skipped"}
 # ------------------------------------------------- upload queue
 UPLOAD_WAKE = threading.Event()
 DEFAULTS = {"SMTP_PORT": "587", "SMTP_SECURITY": "starttls", "PUBLIC_BASE_URL": f"http://localhost:{PORT}", "GEMINI_MODEL": "gemini-flash-latest", "TTS_VOICE": "en-US-GuyNeural",
-            "DEEPSEEK_MODEL": "deepseek-chat", "RESEARCH_PROVIDER": "claude", "LLM_SPLIT": "balanced", "LIVE_WATCH_MINUTES": "8", "LIVE_STREAMS": "4", "AI_THUMBNAILS": "on", "AI_IMAGE_PROVIDER": "free", "DEFAULT_AUDIO_MODE": "replace", "SAFE_MODE": "on", "YT_DAILY_UNITS": "10000", "YT_DAILY_UPLOADS": "100",
+            "DEEPSEEK_MODEL": "deepseek-chat", "RESEARCH_PROVIDER": "claude", "LLM_SPLIT": "balanced", "TITLE_AI": "auto", "SOUND_PEAKS": "on", "LIVE_WATCH_MINUTES": "8", "LIVE_STREAMS": "4", "AI_THUMBNAILS": "on", "AI_IMAGE_PROVIDER": "free", "DEFAULT_AUDIO_MODE": "replace", "SAFE_MODE": "on", "YT_DAILY_UNITS": "10000", "YT_DAILY_UPLOADS": "100",
             "SAFETY_AI_FRAMES": "6", "SAFETY_AI_WIDTH": "384", "SAFETY_FINAL_AI": "off",
             "CLIP_COUNTRIES": "US,CA,GB,IE,DE,FR,ES,IT,NL,BE,SE,NO,DK,FI,PL,PT,AT,CH,CZ,RO,GR,HU",
             "CLIP_LANGUAGES": "en,de,fr,it,nl,sv,da,no,fi,pl,pt,cs,ro,el,hu"}

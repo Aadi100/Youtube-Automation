@@ -76,6 +76,21 @@ def save_sources(uid, items) -> List[str]:
     return keep
 
 
+def ai_saver_on(uid: Optional[str] = None) -> bool:
+    """Has this account switched the AI saver on (Settings -> AI saver)? Off until it does."""
+    try:
+        from app.models import Setting
+        return bool((Setting.find_one(id=_doc_id(uid)) or {}).get("ai_saver"))
+    except Exception:
+        return False
+
+
+def save_ai_saver(uid, on) -> bool:
+    from app.models import Setting
+    Setting.set_fields(_doc_id(uid), {"ai_saver": bool(on)}, upsert=True)
+    return bool(on)
+
+
 def _doc_id(uid: Optional[str] = None) -> str:
     u = uid or os.environ.get("CLIPSTUDIO_USER_ID")
     return f"clipping:{u}" if u else "clipping"

@@ -68,6 +68,13 @@ Dialogue: 0,0:00:00.50,0:00:04.50,BadgeStyle,,0,0,0,,{{\\fad(400,400)}}CLIP #{id
         f.write(ass_content)
     return output_file
 
+def _fade_tail(duration: float) -> str:
+    """',afade=...' (a 30 ms fade in and out) to add after an audio filter, or '' when the length is unknown."""
+    from app.engine import clean_cuts
+    f = clean_cuts.fade_filter(duration)
+    return ("," + f) if f else ""
+
+
 def _audio_inputs(audio_path: Optional[Path]) -> list:
     return ["-i", str(audio_path)] if audio_path else []
 
@@ -117,7 +124,7 @@ def make_short_blurred(
         *_audio_inputs(audio_path),
         "-filter_complex", "".join(filtergraph),
         "-map", v_map,
-        *_audio_map(audio_path, audio_filter),
+        *_audio_map(audio_path, audio_filter + ("" if audio_path else _fade_tail(get_video_info(input_video).get("duration", 0)))),
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", "18",
@@ -175,7 +182,7 @@ def make_short_split(
         *_audio_inputs(audio_path),
         "-filter_complex", "".join(filtergraph),
         "-map", v_map,
-        *_audio_map(audio_path, audio_filter),
+        *_audio_map(audio_path, audio_filter + ("" if audio_path else _fade_tail(get_video_info(input_video).get("duration", 0)))),
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", "18",
@@ -228,7 +235,7 @@ def create_compilation(
         norm_output = TEMP_DIR / f"norm_clip_{idx}.mp4"
         
         v_filter = f"scale={COMPILATION_WIDTH}:{COMPILATION_HEIGHT}:force_original_aspect_ratio=decrease,pad={COMPILATION_WIDTH}:{COMPILATION_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,ass='{escaped_badge}'"
-        a_filter = f"loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5,aformat=channel_layouts=stereo:sample_rates=48000"
+        a_filter = f"loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5,aformat=channel_layouts=stereo:sample_rates=48000" + _fade_tail(clip_duration)
         
         mix = None
         if audio_mode != "original":

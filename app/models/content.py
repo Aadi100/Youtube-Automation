@@ -112,7 +112,7 @@ class Clip(Doc):
             set_on_insert__created_at=now(), set_on_insert__status="downloaded", set_on_insert__user_id=scope_uid(item.get("user_id")),
             **_sets({"source": item.get("source", "twitch"), "game_id": item.get("game_id"),
                      "channel_url": item.get("channel_url"), "streamer": item["streamer"], "title": item["title"], "views": item.get("views", 0),
-                     "url": item.get("url"), "path": item["path"]}))
+                     "url": item.get("url"), "path": item["path"], "lab": item.get("lab")}))
 
     @classmethod
     def bank(cls, item: Dict) -> None:
@@ -123,7 +123,8 @@ class Clip(Doc):
             **_sets({"status": "banked", "source": item.get("source", "youtube"), "game_id": item.get("game_id"), "channel_url": item.get("channel_url"),
                      "streamer": item["streamer"], "title": item["title"], "views": item.get("views", 0), "url": item.get("url"),
                      "path": item.get("path"), "window": item.get("window"), "src_duration": item.get("src_duration"),
-                     "duration": item.get("duration"), "score": float(item.get("score") or 0), "hook": item.get("hook", ""), "reason": item.get("reason", "")}))
+                     "duration": item.get("duration"), "score": float(item.get("score") or 0), "hook": item.get("hook", ""), "reason": item.get("reason", ""),
+                     "context": item.get("context", ""), "lab": item.get("lab")}))
 
     @classmethod
     def expire_banked(cls) -> int:

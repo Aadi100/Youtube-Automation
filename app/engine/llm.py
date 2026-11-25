@@ -3,7 +3,8 @@
 Which one goes first depends on the task (LLM_SPLIT=balanced, the default):
     commentary  -> DeepSeek, then Gemini      (creative writing: DeepSeek is cheap and good at it)
     moments     -> DeepSeek, then Gemini      (reading long transcripts: lots of text, so it saves Gemini's daily quota)
-    metadata    -> DeepSeek, then Gemini      (titles / descriptions / thumbnail text: creative writing)
+    metadata    -> Claude, then Gemini, then DeepSeek   (titles / descriptions: TITLE_AI=auto uses the strongest model you have a key for;
+                                                       choose claude / gemini / deepseek in Settings -> Accounts & keys to force one)
     scoring     -> Gemini,   then DeepSeek    (quick clip scores)
 LLM_SPLIT=deepseek / gemini puts that one first for every task. Without a DeepSeek key everything simply uses Gemini
 (which itself tries several models). Images (the safety review) are Gemini-only: DeepSeek cannot look at pictures.
@@ -72,11 +73,17 @@ def _deepseek(prompt: str, timeout: int, json_mode: bool, max_tokens: int = 0, m
 
 
 def order_for(task: str) -> List[str]:
+    from app.engine import claude_util
     split = (os.environ.get("LLM_SPLIT") or "balanced").strip().lower()
     base = ORDER.get(task, ["gemini", "deepseek"])
-    if split in ("deepseek", "gemini"):
+    if task == "metadata":      # titles and descriptions decide whether anybody clicks: the strongest writer goes first
+        pick = (os.environ.get("TITLE_AI") or "auto").strip().lower()
+        if pick not in ("claude", "gemini", "deepseek"):
+            pick = split if split in ("deepseek", "gemini") else "claude"      # auto: your overall choice if you made one, else the strongest
+        base = [pick] + [p for p in ("claude", "gemini", "deepseek") if p != pick]
+    elif split in ("deepseek", "gemini"):
         base = [split] + [p for p in base if p != split]
-    return [p for p in base if p != "deepseek" or deepseek_ready()]
+    return [p for p in base if (p != "deepseek" or deepseek_ready()) and (p != "claude" or claude_util.ready())]
 
 
 def _record(kind: str, provider: str, task: str, tin: int, tout: int) -> None:
@@ -95,6 +102,17 @@ def generate(task: str, prompt: str, json_mode: bool = False, timeout: int = 60)
     errors = []
     for p in order_for(task):
         try:
+            if p == "claude":
+                from app.engine import claude_util
+                raw = claude_util.ask(task, "You write YouTube titles and descriptions." + (" Reply with one JSON object and nothing else." if json_mode else ""),
+                                      [{"type": "text", "text": prompt}], max_tokens=ai_saver.max_tokens(task) or 1800, timeout=max(timeout, 60),
+                                      model_id=claude_util.title_model() if task == "metadata" else "", temperature=0.8 if task == "metadata" else 0.4)
+                if json_mode:
+                    raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                    a, b = raw.find("{"), raw.rfind("}")
+                    raw = raw[a:b + 1] if 0 <= a < b else raw
+                _log(f"{task}: answered by claude")
+                return raw        # claude_util.ask has already recorded the usage and the AI budget
             if p == "deepseek":
                 _deepseek_usage.usage = (0, 0)
                 text = _deepseek(prompt, timeout, json_mode, ai_saver.max_tokens(task) or 0)

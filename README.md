@@ -22,9 +22,19 @@ live moment and a normal clip. Long YouTube videos / past streams (up to 4 h) ar
 Scheduled runs that find nothing new in 24 h widen the search to 3 and then 7 days.
 `python -m app.engine.live_scanner --game roblox --minutes 1 --streams 2 --min-score 0.3` tests it without the pipeline.
 
-## AI saver and thumbnail levels
+## Learning Lab (beta, owner only)
 
-Every AI call follows the same rules (`app/engine/ai_saver.py`): small answer limits per task, a token budget for each video (`AI_JOB_BUDGET`, default 60,000),
+A separate page (**Learning Lab**) that teaches the studio the owner's taste. It has three parts, each with its own switch, all **off** until switched on:
+
+- **Titles**: titles you like are shown to the AI that writes titles; a small model learns from the views per day of your own videos which kinds of titles do better and nudges the title choice (at most 12 points of 100).
+- **Descriptions**: descriptions you like, and the ones you rewrite by hand in the Videos page, are shown to the AI that writes descriptions.
+- **Clipping**: a small model learns from the videos you publish or decline which kinds of clips are worth making and nudges a moment's score (at most 10 points of 100).
+
+It only affects videos made for the owner account. A model needs enough data before it speaks (12 videos with view counts for titles; 20 decisions, 6 of each kind, for clipping), and it is a small nudge, never a replacement for the normal scoring. View counts come from the YouTube Data API key (Settings -> Accounts & keys). This is learning from results, not a trained language model: a channel does not have the data for that.
+
+## AI saver (off until you switch it on) and thumbnail levels
+
+Switch it on in Settings -> AI saver (every member and the owner choose for their own videos; it is off by default). When it is on, every AI call follows the same rules (`app/engine/ai_saver.py`): small answer limits per task, a token budget for each video (`AI_JOB_BUDGET`, default 60,000),
 pictures read at low resolution (`AI_MEDIA_RESOLUTION`, default low: the safety review costs about a quarter of the tokens for the same answer),
 and a cache (`ai_cache`, 30 days) so the same clip or video is never analysed twice. Reports -> "AI tokens saved" shows the effect.
 The safety check is never skipped, only made cheaper.

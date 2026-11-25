@@ -99,6 +99,26 @@ def _bill_render(mode: str) -> None:
     _usage("server", "", 1)                                       # the server's share of every video (also a video made from the member's own clip)
 
 
+def _auto_cam_crop(video: Path, default: str) -> str:
+    """The rectangle around the streamer's face camera for the split layout (face on top, game below), found with the face finder.
+    Falls back to `default` (the old fixed guess) when there is no steady face or the finder is not available."""
+    try:
+        import cv2
+        from app.engine import face_signals
+        cap = cv2.VideoCapture(str(video))
+        w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        dur = (cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0) / (cap.get(cv2.CAP_PROP_FPS) or 30.0)
+        cap.release()
+        box = face_signals.find_face_box(video, dur) if dur else None
+        crop = face_signals.webcam_crop(box, w, h) if box else None
+        if crop:
+            print(f"[Faces] face camera found: crop {crop} (instead of the fixed guess)", flush=True)
+            return crop
+    except Exception as e:
+        print(f"[Faces] face camera search skipped ({str(e)[:80]})", flush=True)
+    return default
+
+
 def run_short_pipeline(
     input_video: Path,
     layout: str = "blur",
@@ -112,16 +132,19 @@ def run_short_pipeline(
     credits: Optional[List[Dict]] = None,
     hook: str = "",
     remix: Optional[Dict] = None,
+    context: str = "",
 ) -> Dict:
     game = game or Game.default_data()
     print(f"\n=== SHORTS PIPELINE [{game['name']}]: {input_video.name} (audio: {audio_mode}) ===")
+    if layout == "split" and cam_crop == "0:0:640:360":       # the built-in default is a guess: look for the real face camera
+        cam_crop = _auto_cam_crop(input_video, cam_crop)
 
     # Audio shield first: it may supply the captions (commentary words) too.
     transcript = ""
     if audio_mode == "replace":
         transcript = " ".join(w["word"].strip() for w in transcribe_audio_to_words(input_video, TEMP_DIR))
     audio_path, words, audio_used = build_audio(
-        input_video, audio_mode, input_video.stem, transcript, streamer_name, topic, game["name"])
+        input_video, audio_mode, input_video.stem, transcript, streamer_name, topic, game["name"], context=context)
 
     kwargs = dict(input_video=input_video, with_subtitles=with_subtitles,
                   audio_path=audio_path, words=words)
@@ -132,7 +155,7 @@ def run_short_pipeline(
     if remix:    # the video keeps its own title, description and thumbnail: no new AI text, no new image
         meta = {"title": remix.get("title") or "", "description": remix.get("description") or ""}
     else:
-        meta = generate_seo_metadata(video_type="short", topic=topic, streamers=[streamer_name], context=f"{hook}. What was said: {transcript[:700]}".strip(". "),
+        meta = generate_seo_metadata(video_type="short", topic=topic, streamers=[streamer_name], context=f"{hook}. What was said: {transcript[:700]}. {context[:700]}".strip(". "),
                                      game=game, credits=credits)
     from app.engine.safety import check_final_video
     ok, why = check_final_video(rendered, meta.get("title", ""), meta.get("description", ""))
@@ -429,7 +452,7 @@ def main():
             c = found[0]
             out = run_short_pipeline(Path(c["path"]), a.layout, a.cam_crop, not a.no_subtitles,
                                      c["streamer"], c["title"], a.audio_mode, [c["clip_id"]],
-                                     game=game, credits=[credit_for(c)], hook=c.get("hook", ""))
+                                     game=game, credits=[credit_for(c)], hook=c.get("hook", ""), context=c.get("context", ""))
         else:
             found = discover_and_download(count=a.count, hours=a.hours, source=a.source,
                                           min_seconds=15, max_seconds=60, game=game, creator=creator)

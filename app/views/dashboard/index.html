@@ -860,7 +860,7 @@ function stopTimer() { if (timer) clearInterval(timer); timer = null; }
 })();
 
 /* ------------------------------------------------------------ router */
-const routes = {overview, games, create, videos, editor, research, reactions, notifications, profile, twitch, clips, schedule, settings, users, reports, usage, progress: overview};
+const routes = {overview, games, create, videos, editor, research, reactions, lab, notifications, profile, twitch, clips, schedule, settings, users, reports, usage, progress: overview};
 /* ------------------------------------------------------------ shell: sidebar, subtitles, status */
 const ICON = {
   overview: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
@@ -885,12 +885,12 @@ Object.assign(ICON, {usage: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5v9"/
 function buildShell() {
   const owner = ME.role === "owner";
   const NAV = [["Workspace", [["overview", "Overview"], ["create", "Create"], ["videos", "Videos"], ["editor", "Editor"], ["clips", "Clips"]]],
-               ["Automation", [["games", "Games"], ["schedule", "Schedule"], ["research", "Research"]].concat(owner ? [["reactions", "Reaction Lab"]] : [])],
+               ["Automation", [["games", "Games"], ["schedule", "Schedule"], ["research", "Research"]].concat(owner ? [["reactions", "Reaction Lab"], ["lab", "Learning Lab"]] : [])],
                ["Publishing", [["twitch", "Twitch helper"]]],
                ["System", [["usage", "My usage"], ["profile", "Profile"], ["notifications", "Notifications"], ["settings", "Settings"]].concat(owner ? [["users", "Users"], ["reports", "Reports"]] : [])]];
   const initials = (ME.name || ME.email).split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
   $("#nav").innerHTML = `<div class="brand"><div class="logo">${svg("videos")}</div><div>CLIP <span>STUDIO</span></div><button class="bell" id="bell" title="Notifications" aria-label="Notifications">${svg("bell")}<i id="bellc" hidden>0</i></button><button class="menubtn" id="menubtn" aria-label="Menu" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button></div>` +
-    `<div class="navlinks">` + NAV.map(([g, items]) => `<div class="navgroup">${g}</div>` + items.map(([r, t]) => `<a href="#/${r}" data-r="${r}">${svg(r)}<span>${t}</span>${r === "reactions" ? `<i class="betatag">BETA</i>` : ""}</a>`).join("")).join("") + `</div>` +
+    `<div class="navlinks">` + NAV.map(([g, items]) => `<div class="navgroup">${g}</div>` + items.map(([r, t]) => `<a href="#/${r}" data-r="${r}">${svg(r)}<span>${t}</span>${r === "reactions" || r === "lab" ? `<i class="betatag">BETA</i>` : ""}</a>`).join("")).join("") + `</div>` +
     `<div class="sp"></div><div class="sidefoot"><div class="pill" id="jobpill"><span class="d"></span><span id="jobtxt">Idle</span></div>
      <button id="themebtn" title="Switch light / dark">${svg("moon")}<span>Light / dark</span></button>
      <div class="userchip">${avatarMini(initials)}<div class="who"><b>${esc(ME.name)}</b><span id="whoSub">${owner ? "Owner" : "Member"}</span></div><button id="logoutbtn" title="Log out">${svg("logout")}</button></div></div>`;
@@ -910,6 +910,7 @@ function buildShell() {
   try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 }
 const SUBS = {
+  lab: "Beta. Teach the studio your taste: the titles and descriptions you like, and what works on your own videos. Off until you switch a part on.",
   reactions: "Beta. Find the moments people react to in a video, judge them, and let the studio learn what a good reaction means for your channel. Runs on its own: it changes nothing else.",
   research: "Claude searches the web for creators that allow clipping, clipping programmes and campaigns, what they want, and whether you can earn on your own channel. Every answer comes with proof.",
   notifications: "What happened with your videos, uploads and tokens.",
@@ -2448,6 +2449,71 @@ async function research() {
 
 /* ------------------------------------------------------------ Reaction Lab (beta): find the moments people react to, judge them, and let the studio learn your taste */
 Object.assign(ICON, {reactions: '<circle cx="12" cy="12" r="9"/><path d="M8 14c1 1.6 2.4 2.4 4 2.4s3-.8 4-2.4"/><path d="M9 9.5h.01M15 9.5h.01"/>'});
+/* ------------------------------------------------------------ Learning Lab (beta): your examples, and what the studio learned from your results */
+Object.assign(ICON, {lab: '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/><path d="M8.5 14h7"/>'});
+async function lab() {
+  const PART = {
+    titles: {name: "Titles", up: "more views per day", down: "fewer views per day",
+      what: "The AI that writes your titles is shown the titles you like, and the choice between its candidate titles gets a small nudge from what worked on your own videos."},
+    descriptions: {name: "Descriptions",
+      what: "The AI that writes your descriptions hears how yours sound: the examples you add here, and the descriptions you rewrite by hand in the Videos page."},
+    clipping: {name: "Clipping", up: "published more often", down: "published less often",
+      what: "The score of a moment gets a small nudge (at most 10 points out of 100) toward the kinds of clips you publish, and away from the kinds you decline."},
+  };
+  const S = {part: "titles"};
+  $("#main").innerHTML = `<h1>Learning Lab <span class="betatag big">BETA</span></h1>
+    <div class="rxnote"><b>Experimental, and off by default.</b> Nothing changes in your videos until you switch a part on. It only affects videos made for the owner account, never a member's. It learns from your own examples and results, and it only ever nudges: the normal scoring stays in charge. It is not a trained language model: that needs far more data than a channel has.</div>
+    <div class="seg" id="lab_tabs" style="margin:16px 0">${Object.keys(PART).map(k => `<button data-p="${k}">${PART[k].name}</button>`).join("")}</div>
+    <div id="lab_body"><div class="card muted">Loading…</div></div>`;
+  const when = at => { try { return new Date(at).toLocaleString(); } catch (e) { return ""; } };
+  const draw = d => {
+    const p = PART[d.part], o = d.overview, min = (S.min || {});
+    const stat = d.part === "titles" ? `${o.examples} examples you like · ${o.logged} titles written so far · ${o.with_views} videos with view counts (${min.titles || 12} are needed to learn)`
+      : d.part === "descriptions" ? `${o.examples} examples · ${o.logged} descriptions written so far`
+      : `${o.published} published · ${o.declined} declined (it needs ${min.clipping || 20} decisions in total and ${min.per_class || 6} of each kind)`;
+    const learned = (d.learned || []).length
+      ? d.learned.map(r => `<div class="row" style="gap:10px;margin:6px 0"><span class="st ${r.direction > 0 ? "ok" : "warn"}">${r.direction > 0 ? "▲" : "▼"}</span><span>${esc(r.label)}</span><span class="muted">${r.strength} · ${r.direction > 0 ? p.up : p.down}</span></div>`).join("")
+      : `<div class="muted">${esc(d.note || "It has not learned anything yet.")}</div>`;
+    const examples = d.part === "clipping" ? "" : `
+      <section class="card" style="margin-top:14px"><h2 style="margin-top:0">${d.part === "titles" ? "Titles you like" : "Descriptions you like"}</h2>
+        <div class="help" style="margin-bottom:8px">${d.part === "titles" ? "Add titles you wish every video had (from any channel). The AI copies their feel, never their words." : "Add the first lines of descriptions you like. The AI copies their voice, never their words."} A title or description you rewrite in the Videos page is added here by itself.</div>
+        <textarea id="lab_ex" rows="2" style="width:100%" placeholder="${d.part === "titles" ? "He Grabbed the Wrong Car and the Whole Street Turned on Him" : "He grabs the wrong car and the whole street turns on him. One guy screams about cargo while another dares him to fight."}"></textarea>
+        <div class="row" style="margin-top:8px"><button class="pri" id="lab_add">Add example</button></div>
+        <div id="lab_exlist" style="margin-top:12px">${(d.examples || []).length ? d.examples.map(e => `<div class="row" style="gap:10px;margin:6px 0;align-items:flex-start"><span class="st ${e.source === "edit" ? "" : "ok"}">${e.source === "edit" ? "your edit" : "added by you"}</span><span class="grow" style="min-width:0;overflow-wrap:anywhere">${esc(e.text)}</span><button data-del="${e.id}">Remove</button></div>`).join("") : `<div class="muted">No examples yet.</div>`}</div>
+      </section>`;
+    const results = d.part === "descriptions" ? "" : `
+      <section class="card" style="margin-top:14px"><h2 style="margin-top:0">What it learned</h2>
+        <div class="help" style="margin-bottom:10px">${d.part === "titles" ? "It compares your videos' views per day with how their titles are built. With few videos it stays close to 'no effect'." : "It compares the clips you published with the ones you declined."}</div>
+        ${learned}
+        <div class="row" style="margin-top:14px;gap:10px;flex-wrap:wrap">${d.part === "titles" ? `<button id="lab_sync">Update view counts</button>` : ""}<button class="pri" id="lab_train">Learn from my videos</button><button id="lab_reset">Start over</button><span class="muted" id="lab_msg"></span></div>
+        ${d.part === "titles" && !S.key ? `<div class="help" style="margin-top:8px">To read your view counts add a YouTube Data API key in Settings → Accounts &amp; keys.</div>` : ""}
+      </section>`;
+    const recent = d.part === "clipping" ? "" : `
+      <section class="card" style="margin-top:14px"><h2 style="margin-top:0">Written recently</h2>${(d.recent || []).length ? d.recent.map(r => d.part === "titles"
+        ? `<div style="margin:10px 0"><b>${esc((r.data || {}).picked || "")}</b> <span class="muted">${when(r.at)}</span><div class="help">${((r.data || {}).rows || []).slice(0, 5).map(x => `${esc(x.title)} (${x.total}${x.lab ? ", lab " + (x.lab > 0 ? "+" : "") + x.lab : ""})`).join("<br>")}</div></div>`
+        : `<div style="margin:10px 0"><b>${esc((r.data || {}).hook || "")}</b> <span class="muted">${when(r.at)}</span><div class="help">${esc((r.data || {}).about || "")}<br>${esc((r.data || {}).question || "")}</div></div>`).join("") : `<div class="muted">Nothing yet. It fills as the studio makes videos for you.</div>`}</section>`;
+    $("#lab_body").innerHTML = `
+      <section class="card"><div class="row" style="gap:12px;align-items:center;flex-wrap:wrap"><h2 style="margin:0">${p.name}</h2><span class="st ${d.on ? "ok" : ""}">${d.on ? "On" : "Off"}</span><span class="grow"></span><button class="${d.on ? "" : "pri"}" id="lab_on">${d.on ? "Switch off" : "Switch on"}</button></div>
+        <div class="help" style="margin-top:8px"><b>When it is on:</b> ${p.what}</div>
+        <div class="help" style="margin-top:6px">${esc(stat)}</div></section>${examples}${results}${recent}`;
+    const msg = t => { const m = $("#lab_msg"); if (m) m.textContent = t; };
+    $("#lab_on").onclick = guard(async () => { draw(await api(`/api/lab/${d.part}`, {method: "PUT", body: {on: !d.on}})); toast(d.on ? "Switched off" : "Switched on"); });
+    if ($("#lab_add")) $("#lab_add").onclick = guard(async () => { const t = $("#lab_ex").value.trim(); if (!t) throw new Error("Type or paste an example first"); draw(await api("/api/lab/examples", {method: "POST", body: {kind: d.part === "titles" ? "title" : "description", text: t}})); toast("Added"); });
+    document.querySelectorAll("#lab_exlist [data-del]").forEach(b => b.onclick = guard(async () => { await api(`/api/lab/examples/${b.dataset.del}`, {method: "DELETE"}); load(d.part); }));
+    if ($("#lab_train")) $("#lab_train").onclick = guard(async () => { msg("Learning…"); const r = await api("/api/lab/train", {method: "POST", body: {part: d.part}}); draw(r.detail); const m = $("#lab_msg"); if (m) m.textContent = r.message; });
+    if ($("#lab_reset")) $("#lab_reset").onclick = guard(async () => { if (!confirm("Forget what it learned? Your examples and videos are kept.")) return; draw(await api("/api/lab/reset", {method: "POST", body: {part: d.part}})); toast("Started over"); });
+    if ($("#lab_sync")) $("#lab_sync").onclick = guard(async () => { msg("Reading the view counts…"); const r = await api("/api/lab/sync", {method: "POST", body: {}}); load(d.part, r.message); });
+  };
+  const load = guard(async (part, note) => {
+    S.part = part || S.part;
+    document.querySelectorAll("#lab_tabs button").forEach(b => b.classList.toggle("on", b.dataset.p === S.part));
+    const ov = await api("/api/lab"); S.min = ov.min; S.key = ov.has_api_key;
+    draw(await api(`/api/lab/${S.part}`));
+    if (note) { const m = $("#lab_msg"); if (m) m.textContent = note; }
+  });
+  document.querySelectorAll("#lab_tabs button").forEach(b => b.onclick = () => load(b.dataset.p));
+  load("titles");
+}
 async function reactions() {
   let opt;
   try { opt = await api("/api/reactions/options"); } catch (e) { $("#main").innerHTML = `<h1>Reaction Lab</h1><div class="card"><div class="authmsg bad" style="margin:0">${esc(e.message)}</div></div>`; return; }
@@ -3014,7 +3080,7 @@ async function settings() {
      desc: "Connect your own YouTube channel. The studio then uploads your videos there for you, using your own channel's permission."},
     {id: "conn", icon: "key", title: "Accounts & keys",
      desc: "The keys that let the studio find clips, write commentary and sign off on videos. Secrets are stored on this computer only and never shown again.",
-     keys: ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET", "YOUTUBE_API_KEY", "GEMINI_API_KEY", "GEMINI_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_RESEARCH_MODEL", "RESEARCH_PROVIDER", "TAVILY_API_KEY", "BRAVE_API_KEY", "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "LLM_SPLIT", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YT_DAILY_UPLOADS", "YT_DAILY_UNITS", "CONTACT_EMAIL"],
+     keys: ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET", "YOUTUBE_API_KEY", "GEMINI_API_KEY", "GEMINI_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_RESEARCH_MODEL", "TITLE_AI", "ANTHROPIC_TITLE_MODEL", "RESEARCH_PROVIDER", "TAVILY_API_KEY", "BRAVE_API_KEY", "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "LLM_SPLIT", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YT_DAILY_UPLOADS", "YT_DAILY_UNITS", "CONTACT_EMAIL"],
      status: ["TWITCH_CLIENT_SECRET", "GEMINI_API_KEY"]},
     {id: "ytx", icon: "videos", title: "YouTube access",
      desc: "YouTube refuses many cloud servers (\"Sign in to confirm you're not a bot\"). The lasting fix is a proxy with a home-type address: paste it here, then press Test."},
@@ -3022,11 +3088,13 @@ async function settings() {
      desc: "What the platforms charge you for each model, what one studio token is worth, what members pay, and what a video earns you. The same prices and costs as the Users and Reports pages."},
     {id: "aud", icon: "globe", title: "Audience & clips",
      desc: "The studio-wide defaults: what members get until they choose their own creator countries and languages, how live streams are watched, and the safety settings.",
-     keys: ["CLIP_COUNTRIES", "CLIP_LANGUAGES", "SAFE_MODE", "DEFAULT_AUDIO_MODE", "TTS_VOICE", "LIVE_WATCH_MINUTES", "LIVE_STREAMS", "AI_THUMBNAILS", "AI_IMAGE_PROVIDER", "SAFETY_AI_FRAMES", "SAFETY_AI_WIDTH", "SAFETY_FINAL_AI"]},
+     keys: ["CLIP_COUNTRIES", "CLIP_LANGUAGES", "SAFE_MODE", "DEFAULT_AUDIO_MODE", "TTS_VOICE", "LIVE_WATCH_MINUTES", "LIVE_STREAMS", "SOUND_PEAKS", "AI_THUMBNAILS", "AI_IMAGE_PROVIDER", "SAFETY_AI_FRAMES", "SAFETY_AI_WIDTH", "SAFETY_FINAL_AI"]},
     {id: "clip", icon: "clips", title: "What to clip",
      desc: "Choose which kinds of moments the clipper looks for, add your own ideas, and say what it must never clip. The AI is given exactly these instructions."},
     {id: "audme", icon: "globe", title: "Creators & languages",
      desc: "Choose which creators' clips you want: the country they live in and the language of their streams. Every account sets its own, and it only applies to your own videos."},
+    {id: "saver", icon: "usage", title: "AI saver",
+     desc: "Make the AI cost fewer tokens for your own videos: short answers, a limit for each video, pictures read at low resolution, and a memory so the same clip is never analysed twice. It is off until you switch it on. Every account chooses for itself."},
     {id: "src", icon: "clips", title: "Clip sources",
      desc: "Choose where your videos look for clips: YouTube and / or Twitch. Every account sets its own, and it only applies to your own videos."},
     {id: "mail", icon: "mail", title: "Email alerts",
@@ -3038,7 +3106,7 @@ async function settings() {
     {id: "music", icon: "music", title: "Music",
      desc: "Royalty-free tracks used under the AI commentary. Only use tracks you have the licence for (for example the YouTube Audio Library)."},
   ];
-  if (!isOwner) SECTIONS.splice(0, SECTIONS.length, ...SECTIONS.filter(x => ["prefs", "yt", "clip", "audme", "src"].includes(x.id)));   // members never see server-wide settings
+  if (!isOwner) SECTIONS.splice(0, SECTIONS.length, ...SECTIONS.filter(x => ["prefs", "yt", "clip", "audme", "src", "saver"].includes(x.id)));   // members never see server-wide settings
   const META = {
     TWITCH_CLIENT_ID: ["Twitch client ID", "Free at dev.twitch.tv/console. Needed for Twitch clips and live streams."],
     TWITCH_CLIENT_SECRET: ["Twitch client secret", ""],
@@ -3047,6 +3115,8 @@ async function settings() {
     GEMINI_MODEL: ["Gemini model", "Leave as is unless a model is retired."],
     ANTHROPIC_API_KEY: ["Claude API key", "Optional. Turns on the High thumbnail level: Claude looks at the best frames and plans the thumbnail. Get one at console.anthropic.com. It is saved only on this computer."],
     ANTHROPIC_RESEARCH_MODEL: ["Claude model for research", "Optional. The clipping research can use a stronger model than thumbnails. Leave empty to use the Claude model above. Web search must be switched on for your Anthropic account."],
+    TITLE_AI: ["AI that writes titles and descriptions", "Titles decide whether people click, so a stronger writer is worth the few cents. Auto: Claude when you have a Claude key, else Gemini, else DeepSeek (or the choice you made under 'How to share the work'). The others stay as backup."],
+    ANTHROPIC_TITLE_MODEL: ["Claude model for titles", "Optional. Leave empty to use the Claude model above. A larger model costs more per title."],
     TAVILY_API_KEY: ["Search key: Tavily (for DeepSeek research)", "Optional. DeepSeek cannot browse the web, so it needs a search service to find pages. Tavily has a free plan (app.tavily.com). Gemini is not needed."],
     BRAVE_API_KEY: ["Search key: Brave Search (alternative)", "Optional. Used only when no Tavily key is set. Brave Search API has a free plan (brave.com/search/api)."],
     RESEARCH_PROVIDER: ["AI for clipping research", "Which AI does the research by default. Claude and Gemini search the web themselves. DeepSeek cannot browse, so it writes the searches, a search service finds the pages (a free Tavily or Brave key, below), and DeepSeek reads them. Gemini is not needed. You can also pick per research on the Research page."],
@@ -3063,6 +3133,7 @@ async function settings() {
     CLIP_LANGUAGES: ["Default stream languages for members", "Language codes, for example en,de,fr. What a member gets until they choose their own. The owner starts with all languages."],
     LIVE_WATCH_MINUTES: ["Live scan: minutes to watch", "Longer finds better moments but takes more time per run."],
     LIVE_STREAMS: ["Live scan: streams at once", "How many live streams are watched together."],
+    SOUND_PEAKS: ["Listen to the video to find moments", "On: the studio also listens to the sound of a video (shouting, laughing, a loud reaction after a quiet part) and uses those moments next to the captions and YouTube's most-replayed curve. It downloads only the sound (about 6 MB for 20 minutes) and adds roughly 30 seconds per video. Off: captions and replays only."],
     SAFE_MODE: ["Skip sexual / adult content", "Screens every clip and finished video for nudity, sexual and suggestive content. Keep this on."],
     DEFAULT_AUDIO_MODE: ["Original audio", "Applies to every automatic and manual video unless you choose otherwise on the Create page."],
     TTS_VOICE: ["Narrator voice", "Who reads the AI commentary. You can also choose one per video on the Create page."],
@@ -3086,7 +3157,7 @@ async function settings() {
   const VOICE_OPTS = [["random", "Random: a different narrator for each video"]].concat(voices.map(v => [v.id, `${v.name} · ${v.locale.replace("en-", "")} · ${v.gender.toLowerCase()}`]));
   let cmods = []; if (isOwner) { try { cmods = (await api("/api/claude/models")).models; } catch (e) {} }
   const CM = cmods.map(m => [m.id, m.name === m.id ? m.id : `${m.name} (${m.id})`]);
-  const SELECTS = {RESEARCH_PROVIDER: [["claude", "Claude (web search)"], ["gemini", "Gemini (Google Search)"], ["deepseek", "DeepSeek (needs a free Tavily or Brave search key)"]], ANTHROPIC_MODEL: [["", "Default (claude-sonnet-5-5)"]].concat(CM), ANTHROPIC_RESEARCH_MODEL: [["", "Same as the Claude model above"]].concat(CM), LLM_SPLIT: [["balanced", "Balanced (recommended)"], ["deepseek", "DeepSeek first for everything"], ["gemini", "Gemini first for everything"]], TTS_VOICE: VOICE_OPTS, SMTP_SECURITY: SECURITY, DEFAULT_AUDIO_MODE: AUDIO_OPTS, SAFE_MODE: [["on", "On (recommended)"], ["off", "Off"]], AI_THUMBNAILS: [["on", "On"], ["off", "Off"]], SAFETY_FINAL_AI: [["off", "Off (cheaper, recommended)"], ["on", "On (Gemini reviews it twice)"]], AI_IMAGE_PROVIDER: [["free", "Free service (no key)"], ["gemini", "Google Gemini (needs billing)"]]};
+  const SELECTS = {TITLE_AI: [["auto", "Auto (the strongest writer you have a key for)"], ["claude", "Claude"], ["gemini", "Gemini"], ["deepseek", "DeepSeek"]], ANTHROPIC_TITLE_MODEL: [["", "Same as the Claude model above"]].concat(CM), SOUND_PEAKS: [["on", "On (listen to the video)"], ["off", "Off (captions and replays only)"]], RESEARCH_PROVIDER: [["claude", "Claude (web search)"], ["gemini", "Gemini (Google Search)"], ["deepseek", "DeepSeek (needs a free Tavily or Brave search key)"]], ANTHROPIC_MODEL: [["", "Default (claude-sonnet-5-5)"]].concat(CM), ANTHROPIC_RESEARCH_MODEL: [["", "Same as the Claude model above"]].concat(CM), LLM_SPLIT: [["balanced", "Balanced (recommended)"], ["deepseek", "DeepSeek first for everything"], ["gemini", "Gemini first for everything"]], TTS_VOICE: VOICE_OPTS, SMTP_SECURITY: SECURITY, DEFAULT_AUDIO_MODE: AUDIO_OPTS, SAFE_MODE: [["on", "On (recommended)"], ["off", "Off"]], AI_THUMBNAILS: [["on", "On"], ["off", "Off"]], SAFETY_FINAL_AI: [["off", "Off (cheaper, recommended)"], ["on", "On (Gemini reviews it twice)"]], AI_IMAGE_PROVIDER: [["free", "Free service (no key)"], ["gemini", "Google Gemini (needs billing)"]]};
   const field = (k, v) => {
     const [label, help] = META[k] || [k, ""];
     if (SELECTS[k] && v.value && !SELECTS[k].some(o => o[0] === v.value)) SELECTS[k].push([v.value, v.value]);
@@ -3121,7 +3192,7 @@ async function settings() {
     paintTabs(s);
     $("#spanes").innerHTML = SECTIONS.map(sec => `<div class="card spane" data-p="${sec.id}" ${state.tab === sec.id ? "" : "hidden"}>
       <h2>${svg(sec.icon).replace("<svg", '<svg width="18" height="18" style="stroke:currentColor;fill:none;stroke-width:1.8"')}${sec.title}</h2><p class="secdesc">${sec.desc}</p>
-      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>
+      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "saver" ? `<div id="savercfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>
         <div class="savebar"><button class="pri" data-save>Save changes</button>${sec.id === "mail" ? `<button id="mt">Send test email</button><span class="muted" id="mres"></span>` : ""}
         <span class="muted">Stored in the local .env file.</span></div>`
       : `<div class="row"><input type="file" id="mf" accept=".mp3,.wav,.m4a,.ogg,.flac" class="grow"><button id="mu" class="pri">Upload track</button></div><div id="mlist" style="margin-top:14px"></div>`}
@@ -3141,7 +3212,7 @@ async function settings() {
       try { const r = await api("/api/email/test", {method: "POST"}); $("#mres").innerHTML = `<span style="color:var(--ok)">✔</span> ${esc(r.message)}`; }
       catch (e) { $("#mres").innerHTML = `<span style="color:var(--bad)">✖</span> ${esc(e.message)}`; }
     });
-    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); if (isOwner) { loadPricing(); loadYtx(); loadTpl(); }
+    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); loadSaver(); if (isOwner) { loadPricing(); loadYtx(); loadTpl(); }
     if ($("#mu")) {
       $("#mu").onclick = guard(async () => {
         const f = $("#mf").files[0]; if (!f) throw new Error("Choose a file first");
@@ -3354,6 +3425,19 @@ async function settings() {
       if (!picked.length) throw new Error("Choose at least one place to look for clips");
       await api("/api/sources", {method: "PUT", body: {sources: picked}}); toast("Clip sources saved");
       box.querySelector("#src_msg").textContent = "Saved: " + picked.map(cap).join(" + ");
+    });
+  });
+  const loadSaver = guard(async () => {
+    const box = $("#savercfg"); if (!box) return;
+    const d = await api("/api/ai-saver");
+    if (!box.isConnected) return;
+    box.className = "";
+    box.innerHTML = `<div class="audnote">When this is on, the studio spends fewer AI tokens on your own videos: each answer has a size limit, a video has a token budget, pictures are read at low resolution (the safety check is never skipped, only made cheaper) and an answer that was already paid for is reused. When it is off, the AI works with no limits, as before.</div>
+      <div class="row" style="gap:14px;align-items:center;margin:14px 0"><label class="switch"><input type="checkbox" id="saver_on" ${d.on ? "checked" : ""}><span></span></label><b>Use the AI saver for my videos</b></div>
+      <div class="row" style="gap:12px;align-items:center"><button class="pri" id="saver_save">Save</button><span class="muted" id="saver_msg"></span></div>`;
+    box.querySelector("#saver_save").onclick = guard(async () => {
+      const r = await api("/api/ai-saver", {method: "PUT", body: {on: box.querySelector("#saver_on").checked}});
+      toast(r.on ? "AI saver is on" : "AI saver is off"); box.querySelector("#saver_msg").textContent = r.on ? "On for your videos" : "Off";
     });
   });
   const loadAud = guard(async () => {

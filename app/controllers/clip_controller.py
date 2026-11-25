@@ -55,6 +55,16 @@ def _sources_payload(h) -> dict:
                  "note": "Kick has no way to search clips by game, so the studio cannot look there by itself yet. You can still paste a Kick link in the Clip Finder or the Editor."}]}
 
 
+def h_ai_saver(h):
+    from app.engine import clipcfg
+    h.send_json(200, {"on": clipcfg.ai_saver_on(h.uid)})
+
+
+def h_ai_saver_put(h):
+    from app.engine import clipcfg
+    h.send_json(200, {"on": clipcfg.save_ai_saver(h.uid, bool(h.body_json().get("on")))})
+
+
 def h_sources(h):
     """Where THIS person's videos look for clips: YouTube and / or Twitch (every account sets its own)."""
     h.send_json(200, _sources_payload(h))
@@ -95,6 +105,8 @@ ROUTES = [
     (r"/api/clipping", "PUT", h_clipping_put),
     (r"/api/audience", "GET", h_audience),
     (r"/api/audience", "PUT", h_audience_put),
+    (r"/api/ai-saver", "GET", h_ai_saver),
+    (r"/api/ai-saver", "PUT", h_ai_saver_put),
     (r"/api/sources", "GET", h_sources),
     (r"/api/sources", "PUT", h_sources_put),
     (r"/api/clips", "GET", h_clips),

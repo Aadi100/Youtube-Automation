@@ -89,8 +89,24 @@ def score_clips(items: List[Tuple[str, str, str]], game_name: str) -> Dict[str, 
 
 
 # ------------------------------------------------------------------ long videos: captions -> best moments
+NL = chr(10)
+_CAP_CACHE: Dict[str, List[Dict]] = {}
+
+
 def fetch_captions(url: str) -> List[Dict]:
-    """YouTube auto-captions as [{start, end, text}] (seconds). [] if the video has none."""
+    """YouTube auto-captions as [{start, end, text}] (seconds). [] if the video has none. The last few are remembered for this run."""
+    key = re.sub(r"[?&](si|t|feature)=[^&]*", "", url)
+    if key in _CAP_CACHE:
+        return _CAP_CACHE[key]
+    segs = _fetch_captions(url)
+    if segs:                                 # an empty answer may only be a temporary refusal (HTTP 429): never remembered
+        if len(_CAP_CACHE) >= 6:
+            _CAP_CACHE.pop(next(iter(_CAP_CACHE)))
+        _CAP_CACHE[key] = segs
+    return segs
+
+
+def _fetch_captions(url: str) -> List[Dict]:
     from app.engine import discovery as D
     with tempfile.TemporaryDirectory() as td:
         try:
@@ -127,7 +143,8 @@ def _parse_time(v) -> float:
     return sec
 
 
-def rank_transcript(segs: List[Dict], duration: float, want: int, game_name: str, min_score: int = MIN_SCORE) -> List[Dict]:
+def rank_transcript(segs: List[Dict], duration: float, want: int, game_name: str, min_score: int = MIN_SCORE,
+                    events: Optional[List[Tuple[float, str]]] = None) -> List[Dict]:
     if min_score == MIN_SCORE:
         min_score = clipcfg.load()["min_score"]
     """Best moments of a long video: [{start, end, score, hook, reason}] sorted by score."""
@@ -148,12 +165,17 @@ def rank_transcript(segs: List[Dict], duration: float, want: int, game_name: str
         lines = [f"[{_mmss(s['start'])}] {s['text']}" for s in segs if a <= s["start"] < b]
         if len(lines) < 5:
             return []
+        notes = [f"[{_mmss(t)}] {d}" for t, d in (events or []) if a <= t < b][:25]
+        heard = ("The sound of the video was measured too. These are the places where it jumps (a shout, laughter, loud after quiet); a moment "
+                 "that has one of them is usually worth more:" + NL + NL.join(notes) + NL + NL) if notes else ""
         prompt = (f"You pick moments for a YouTube Shorts channel about the video game {game_name}. Below is a timestamped transcript "
-                  f"([mm:ss] text) of part of a long video. Choose up to 5 moments of 20 to 50 seconds with the highest viral potential. "
-                  f"{clipcfg.criteria_text()} Start each moment at a natural sentence start and end after the payoff. "
+                  f"([mm:ss] text) of part of a long video. Choose up to 5 moments of 20 to 55 seconds with the highest viral potential. "
+                  f"{clipcfg.criteria_text()} Each moment must make sense to a stranger who has not seen the rest of the video: "
+                  "start where the SETUP begins (the sentence that explains what is going on, a few seconds before the peak, never in the middle of a sentence) "
+                  "and end 2 to 4 seconds AFTER the reaction or payoff has finished, never right at the peak. "
                   'Reply with JSON only: a list of {"start": "mm:ss copied exactly from a transcript bracket", "end": "mm:ss from a later bracket", "score": 0-100 integer, "hook": "max 8 words", '
                   '"reason": "max 14 words", "safe": boolean}. safe=false if it is sexual, nude, suggestive, hateful or graphic.\n\n'
-                  + "\n".join(lines)[:45000])
+                  + heard + "\n".join(lines)[:45000])
         try:
             data = _gemini_json(prompt, timeout=75, task="moments")
         except Exception as e:
@@ -195,14 +217,14 @@ def rank_transcript(segs: List[Dict], duration: float, want: int, game_name: str
     return keep[:want]
 
 
-def pick_windows(url: str, duration: float, game_name: str, n: int = 4) -> List[Dict]:
+def pick_windows(url: str, duration: float, game_name: str, n: int = 4, events: Optional[List[Tuple[float, str]]] = None) -> List[Dict]:
     """The best n moments of a long YouTube video without 'most replayed' data: [{start, end, score, hook, reason}]."""
     global _spent
     if _spent > RUN_BUDGET_S:
         _log("analysis time budget for this run is used up - skipping the AI pick")
         return []
     from app.engine import ai_saver
-    ckey = ai_saver.key_of("moments", re.sub(r"[?&](si|t|feature)=[^&]*", "", url), int(duration // 30), n, clipcfg.criteria_text())
+    ckey = ai_saver.key_of("moments", re.sub(r"[?&](si|t|feature)=[^&]*", "", url), int(duration // 30), n, clipcfg.criteria_text(), [(round(a), b) for a, b in (events or [])])
     hit = ai_saver.cache_get("moments", ckey)
     if hit is not None:
         _log(f"moments of this video were found before: reusing them ({len(hit)})")
@@ -213,7 +235,7 @@ def pick_windows(url: str, duration: float, game_name: str, n: int = 4) -> List[
         _spent += time.time() - t0
         return []
     before_tokens = ai_saver.spent()
-    best = rank_transcript(segs, duration, n, game_name)
+    best = rank_transcript(segs, duration, n, game_name, events=events)
     _spent += time.time() - t0
     for m in best:
         m["start"], m["end"] = round(m["start"], 1), round(min(m["end"], duration), 1)

@@ -7,6 +7,9 @@
   * a record of every token that was NOT spent, so Reports can show the saving.
 
 Nothing here weakens the safety check: it is cheaper, never skipped.
+
+It is OFF until the account turns it on (Settings -> AI saver; every member and the owner choose for their own videos). While it is off every
+function below does nothing: no answer limits, no budget, normal picture resolution, no cache and no savings record.
 """
 import hashlib
 import json
@@ -21,7 +24,18 @@ LOW_RES_RATIO = 3.1                     # measured: 6,628 tokens at default reso
 _spent = 0
 
 
+def enabled() -> bool:
+    """Has the account that is running (CLIPSTUDIO_USER_ID) switched the AI saver on? Off by default."""
+    try:
+        from app.engine import clipcfg
+        return clipcfg.ai_saver_on()
+    except Exception:
+        return False
+
+
 def max_tokens(task: str) -> Optional[int]:
+    if not enabled():
+        return None
     v = os.environ.get("AI_MAX_TOKENS_" + task.upper().replace("-", "_"))
     try:
         return int(v) if v else LIMITS.get(task)
@@ -31,6 +45,8 @@ def max_tokens(task: str) -> Optional[int]:
 
 def media_resolution() -> Optional[str]:
     """How closely Gemini looks at each picture: low (about 280 tokens a picture, the default here), medium, high, or 'default' (about 1,100)."""
+    if not enabled():
+        return None
     v = (os.environ.get("AI_MEDIA_RESOLUTION") or "low").strip().lower()
     return {"low": "MEDIA_RESOLUTION_LOW", "medium": "MEDIA_RESOLUTION_MEDIUM", "high": "MEDIA_RESOLUTION_HIGH"}.get(v)
 
@@ -53,7 +69,7 @@ def spent() -> int:
 
 
 def over_budget(task: str) -> bool:
-    return task not in EXEMPT and _spent >= budget()
+    return enabled() and task not in EXEMPT and _spent >= budget()
 
 
 def reset() -> None:
@@ -63,6 +79,8 @@ def reset() -> None:
 
 # ---------------------------------------------------------------- what was saved
 def saved(task: str, kind: str, tokens: int) -> None:
+    if not enabled():
+        return
     from app.models import AiSaving
     AiSaving.record(task, kind, tokens)
 
@@ -85,6 +103,8 @@ def fingerprint(path: Path) -> str:
 
 
 def cache_get(task: str, key: str) -> Optional[Any]:
+    if not enabled():
+        return None
     try:
         from app.models import AiCache
         d = AiCache.objects(id=key).first()
@@ -98,6 +118,8 @@ def cache_get(task: str, key: str) -> Optional[Any]:
 
 
 def cache_put(task: str, key: str, value: Any, tokens: int = 0) -> None:
+    if not enabled():
+        return
     try:
         from app.models import AiCache
         from app.models.base import now

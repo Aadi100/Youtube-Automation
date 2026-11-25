@@ -25,7 +25,7 @@ from urllib.parse import quote, quote_plus
 import requests
 
 from app.config import (
-    FFMPEG_BIN, INPUT_DIR, LIVE_STREAMS, LIVE_WATCH_MINUTES, TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, YOUTUBE_API_KEY,
+    FFMPEG_BIN, INPUT_DIR, LIVE_STREAMS, LIVE_WATCH_MINUTES, TEMP_DIR, TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, YOUTUBE_API_KEY,
 )
 
 HELIX = "https://api.twitch.tv/helix"
@@ -55,6 +55,47 @@ def _region_ok(name: str, title: str) -> bool:
 
 def _safe(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name).strip(" .")[:80] or "clip"
+
+
+SOUND_MAX_S = 2700            # the sound of videos longer than 45 minutes is not read (the download alone takes minutes)
+SOUND_BUDGET_S = 240          # at most this much time per run is spent listening to videos
+_sound_spent = 0.0
+
+
+def sound_peaks_on() -> bool:
+    return (os.environ.get("SOUND_PEAKS") or read_env_value("SOUND_PEAKS") or "on").strip().lower() not in ("off", "0", "no", "false")
+
+
+def read_env_value(key: str) -> str:
+    from app.utils.envfile import read_env
+    return read_env().get(key, "")
+
+
+def _sound_of(url: str, dur: float) -> Optional[Dict]:
+    """Download only the sound of a YouTube video (about 6 MB for 20 minutes) and measure it (app/engine/sound_peaks.py). None when it cannot."""
+    global _sound_spent
+    if not sound_peaks_on() or dur > SOUND_MAX_S or _sound_spent > SOUND_BUDGET_S:
+        return None
+    import shutil
+    import tempfile
+    import time as _t
+    from app.engine import sound_peaks
+    t0 = _t.time()
+    td = Path(tempfile.mkdtemp(prefix="snd_", dir=str(TEMP_DIR)))
+    try:
+        _ytdlp("-f", "worstaudio/ba/worst", "--no-playlist", "-o", str(td / "aud.%(ext)s"), url, timeout=240)
+        media = next((p for p in td.glob("aud.*") if p.suffix not in (".part", ".ytdl")), None)
+        res = sound_peaks.analyse(media, FFMPEG_BIN) if media else None
+        print(f"[Sound] read the sound of the video in {int(_t.time() - t0)} s" + ("" if res else " (nothing usable)"), flush=True)
+        return res
+    except yt_access.YouTubeBlocked:
+        raise
+    except Exception as e:
+        print(f"[Sound] skipped ({str(e)[:90]})", flush=True)
+        return None
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+        _sound_spent += _t.time() - t0
 
 
 def _ytdlp(*args: str, capture: bool = False, timeout: Optional[int] = 180) -> str:
@@ -413,7 +454,7 @@ def _peak_windows(info: Dict, length: int, n: int = 3) -> List[tuple]:
     out: List[tuple] = []
     for h in sorted(info.get("heatmap") or [], key=lambda h: -h.get("value", 0)):
         centre = (h["start_time"] + h["end_time"]) / 2
-        start = min(max(0.0, centre - length / 2), dur - length)
+        start = min(max(0.0, centre - 0.62 * length), dur - length)      # the peak sits at about 60% of the clip: more run-up than aftermath
         if all(abs(start - w[0]) >= length for w in out):
             out.append((round(start, 1), round(start + length, 1), round(100 * h.get("value", 0))))
         if len(out) >= n:
@@ -430,6 +471,11 @@ def _fetch(url: str, key: str, win: Optional[tuple], dur: float, out: Path) -> N
     _ytdlp(*args, "--no-playlist", "--force-overwrites", "-o", str(out), url, timeout=300)
     if not out.exists():
         raise RuntimeError(f"yt-dlp finished but {out} is missing")
+    if win:                                   # the caption times are only roughly right: move each edge to the nearest pause between words
+        from app.engine import clean_cuts
+        trimmed = clean_cuts.snap_file(out, FFMPEG_BIN)
+        if trimmed:
+            print(f"[Cuts] the clip now starts {trimmed[0]:.1f} s in and stops at {trimmed[1]:.1f} s: between words, not inside one", flush=True)
 
 
 def download_candidate(c: Dict, out_dir: Path = INPUT_DIR, game_name: str = "", game_id: Optional[str] = None) -> Path:
@@ -448,6 +494,13 @@ def download_candidate(c: Dict, out_dir: Path = INPUT_DIR, game_name: str = "", 
         cfg = clipcfg.load()
         L, per = cfg["clip_seconds"], cfg["moments_per_video"]
         wins: List[Optional[tuple]] = []   # (start, end, score, hook)
+        sound = None if dur <= L + 15 else _sound_of(c["url"], dur)          # the loud, exciting moments: a second source next to words and replays
+        sound_ev = []
+        sound_wins: List[tuple] = []
+        if sound:
+            from app.engine import sound_peaks
+            sound_ev = sound_peaks.events(sound["features"], sound["curve"])
+            sound_wins = sound_peaks.windows(sound_peaks.peaks(sound["curve"], per + 1), L, dur)
         if dur <= L + 15:
             wins = [None]
         elif info.get("heatmap"):
@@ -455,27 +508,80 @@ def download_candidate(c: Dict, out_dir: Path = INPUT_DIR, game_name: str = "", 
         else:
             try:
                 from app.engine import moment_ai
-                wins = [(m["start"], m["end"], m["score"], m["hook"]) for m in moment_ai.pick_windows(c["url"], dur, game_name or "the game", n=per)]
+                wins = [(m["start"], m["end"], m["score"], m["hook"]) for m in moment_ai.pick_windows(c["url"], dur, game_name or "the game", n=per, events=sound_ev)]
+            except yt_access.YouTubeBlocked:
+                raise
             except Exception as e:
                 print(f"[Moments] AI pick skipped: {e}")
-            if not wins and dur > YT_NO_HEATMAP_MAX:
-                raise RuntimeError("long video without 'most replayed' data or usable captions - skipped")
-            if not wins:
-                wins = [(0.0, float(L), 40, "")]
+        # Learning Lab (beta): what kind of moment each window is (written down for later learning) and, only when the owner switched
+        # 'clipping' on and the lab has learned something, a small nudge (at most 10 points) to its score
+        base_origin = "heat" if info.get("heatmap") else "words"
+        sound_raw = list(sound_wins)
+
+        def _lab_of(w, origin):
+            agree = origin != "sound" and any(min(w[1], s_[1]) - max(w[0], s_[0]) > 0.35 * (w[1] - w[0]) for s_ in sound_raw)
+            return {"src": "youtube", "origin": origin, "sound_agree": agree, "len": round(w[1] - w[0], 1), "score": int(w[2]), "views": c.get("views", 0),
+                    "hook": bool(w[3]) and w[3] != "Loud, exciting moment"}
+
+        def _lab_final(w):
+            if w is None:
+                return {"src": "youtube", "origin": "whole", "len": round(dur, 1), "score": 0, "views": c.get("views", 0), "hook": False}
+            return _lab_of(w, "sound" if w[3] == "Loud, exciting moment" else base_origin)
+        try:
+            from app.services import lab_service
+            lab_bonus = lab_service.clip_bonus_fn()
+        except Exception:
+            lab_bonus = None
+        if lab_bonus and wins and wins[0] is not None:
+            wins = [(w[0], w[1], w[2] + lab_bonus(_lab_of(w, base_origin)), w[3]) for w in wins]
+            sound_wins = [(s_[0], s_[1], s_[2] + lab_bonus(_lab_of((s_[0], s_[1], s_[2], ""), "sound"))) for s_ in sound_wins]
+        if sound_wins:                      # sound and words / replays agree: more score; a loud moment nobody else found: added
+            from app.engine import sound_peaks
+            merged = sound_peaks.merge_windows(wins, sound_wins, per)
+            if len(merged) and [tuple(w[:2]) for w in merged] != [tuple(w[:2]) for w in wins]:
+                print(f"[Sound] {len(sound_wins)} loud moment(s): {sum(1 for w in merged if w[3] == 'Loud, exciting moment')} added to the {len(wins)} found by words / replays", flush=True)
+            wins = merged
+        if not wins and dur > YT_NO_HEATMAP_MAX:
+            raise RuntimeError("long video without 'most replayed' data, usable captions or a clear loud moment - skipped")
+        if not wins:
+            wins = [(0.0, float(L), 40, "")]
+        # Complete context: with the video's captions the clip starts where the setup begins and ends after the reaction, and the
+        # narration / title step get what the video is about and what was said just before (see app/engine/clip_context.py)
+        segs: List[Dict] = []
+        if wins and wins[0] is not None:
+            try:
+                from app.engine import moment_ai
+                segs = moment_ai.fetch_captions(c["url"])        # already fetched (and remembered) when the AI picked the moments
+            except Exception as e:
+                print(f"[Context] no captions to read the story from ({str(e)[:70]})", flush=True)
+            if segs:
+                from app.engine import clip_context
+                fitted = []
+                for w in wins:
+                    s2, e2 = clip_context.fit_window(segs, w[0], w[1], dur)
+                    if (round(s2, 1), round(e2, 1)) != (round(w[0], 1), round(w[1], 1)):
+                        print(f"[Context] moment {int(w[0])}s-{int(w[1])}s -> {s2:.0f}s-{e2:.0f}s (setup first, ends after the reaction)", flush=True)
+                    fitted.append((s2, e2, w[2], w[3]))
+                wins = fitted
         first = wins[0]
+        from app.engine import clip_context
+        c["context"] = clip_context.build_context(info, segs, first[0] if first else 0.0)
+        c["lab"] = _lab_final(first)
         _fetch(c["url"], c["clip_id"], None if first is None else (first[0], first[1]), dur, out)
         extra = 0
         for w in wins[1:]:
             try:
                 Clip.bank({"clip_id": f"{c['clip_id']}_w{int(w[0])}", "source": "youtube", "streamer": c["streamer"], "title": c["title"],
                                 "views": c.get("views", 0), "duration": int(w[1] - w[0]), "url": c["url"], "channel_url": c.get("channel_url"),
-                                "game_id": game_id, "window": [w[0], w[1]], "src_duration": dur, "score": w[2], "hook": w[3], "path": None})
+                                "game_id": game_id, "window": [w[0], w[1]], "src_duration": dur, "score": w[2], "hook": w[3], "path": None,
+                                "context": clip_context.build_context(info, segs, w[0]), "lab": _lab_final(w)})
                 extra += 1
             except Exception:
                 pass
         if extra:
             print(f"[Bank] kept {extra} more moment(s) from this video for later videos", flush=True)
     else:
+        c["lab"] = {"src": "twitch", "views": c.get("views", 0), "len": c.get("duration", 0), "hook": False}
         _ytdlp("-f", "best[ext=mp4]/best", "--merge-output-format", "mp4", "--no-playlist", "--force-overwrites", "-o", str(out), c["url"], timeout=300)
         if not out.exists():
             raise RuntimeError(f"yt-dlp finished but {out} is missing")
@@ -528,7 +634,7 @@ def _from_bank(game: Dict, count: int) -> List[Dict]:
         Clip.update_where(id=cid, fields={"status": "downloaded", "path": str(path)})
         found.append({"clip_id": cid, "source": doc.get("source", "youtube"), "streamer": doc["streamer"], "title": doc["title"], "views": doc.get("views", 0),
                       "duration": doc.get("duration") or 0, "url": doc.get("url"), "channel_url": doc.get("channel_url"), "path": str(path),
-                      "game_id": doc.get("game_id"), "hook": doc.get("hook", "")})
+                      "game_id": doc.get("game_id"), "hook": doc.get("hook", ""), "context": doc.get("context", ""), "lab": doc.get("lab")})
     return found
 
 
@@ -643,6 +749,7 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
         try:
             from app.engine import live_scanner
             for item in live_scanner.scan_live(game, live_n, LIVE_WATCH_MINUTES, LIVE_STREAMS, platforms=allowed):
+                item.setdefault("lab", {"src": "live", "len": item.get("duration", 0), "views": 0, "hook": False})
                 Clip.save_downloaded(item)
                 results.append(item)
         except Exception as e:

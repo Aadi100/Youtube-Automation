@@ -42,19 +42,27 @@ def template_commentary(streamer: str, title: str, game_name: str, max_words: in
     return " ".join(" ".join(x for x in lines if x).split()[:max_words])
 
 
-def write_commentary(transcript: str, streamer: str, title: str, max_words: int, game_name: str = "") -> Optional[str]:
+def write_commentary(transcript: str, streamer: str, title: str, max_words: int, game_name: str = "", context: str = "") -> Optional[str]:
     """Short original commentary: the member's own text if they wrote it, else Gemini / DeepSeek, else the built-in template. Never returns None."""
     own = " ".join((os.environ.get("DIY_COMMENTARY") or "").split())
     if own:
         return " ".join(own.split()[:max_words])
     try:
         from app.engine import llm
+        about = f"\nWHAT THE VIDEO IS AND WHAT CAME BEFORE: {context[:1200]}" if context.strip() else ""
         prompt = (
-            f"You narrate a {game_name or 'gaming'} news/commentary YouTube channel. A clip titled '{title}' "
-            f"from streamer {streamer} is playing. What was said in it: \"{transcript[:1200]}\".\n"
-            f"Write ORIGINAL narration of at most {max_words} words: set up what is happening, add a "
-            "funny or insightful take, no quoting the streamer verbatim, no emojis, no stage directions. "
-            "Return only the narration text."
+            f"You write the voice-over for a {game_name or 'gaming'} YouTube Shorts channel. The viewer has NOT seen the rest of this video and the "
+            f"creator's own audio is muted, so YOUR words must make the moment make sense on their own.\n"
+            f"FACTS (use them; never invent anything beyond them):\n"
+            f"- Original video title: '{title}'.{about}\n"
+            f"- What is said in the clip itself: \"{transcript[:1200]}\"\n"
+            f"Write ORIGINAL narration of at most {max_words} words, in natural spoken English:\n"
+            "1. The first sentence sets the scene in plain words: who or what, where, and what is at stake, using the facts above.\n"
+            "2. Then say what happens, in order, and why it is funny, tense or surprising.\n"
+            "3. End with a short take or a question to the viewer.\n"
+            "Stick to the facts: say only what the words in the clip and the facts above support. If you are not sure what exactly happens, describe the mood and what is said instead of inventing events, people, numbers or motives.\n"
+            "Rules: talk about the player from outside (he, she, they, the player), never as 'I'. No 'this clip', no 'watch closely', no 'you won't believe', "
+            "no stage directions, no emojis, no word-for-word quotes of the creator. Return only the narration text."
         )
         text = llm.generate("commentary", prompt).strip().strip('"')
         text = " ".join(text.split()[:max_words])
@@ -105,7 +113,7 @@ def synthesize(text: str, out_mp3: Path) -> List[Dict]:
 
 
 def build_audio(video: Path, mode: str, stem: str, transcript: str = "",
-                streamer: str = "", title: str = "", game_name: str = "") -> Tuple[Optional[Path], List[Dict], str]:
+                streamer: str = "", title: str = "", game_name: str = "", context: str = "") -> Tuple[Optional[Path], List[Dict], str]:
     """Create the final audio track for `video`.
 
     Returns (audio_path or None to keep original, caption_words or [] to transcribe original, mode_used).
@@ -121,9 +129,12 @@ def build_audio(video: Path, mode: str, stem: str, transcript: str = "",
     if not music:
         print("[Audio] No music tracks - voice-over only (original audio stays muted).")
 
+    from app.engine import clean_cuts
+    _f = clean_cuts.fade_filter(dur)
+    FADE = ("," + _f) if _f else ""                 # a 30 ms fade at both ends: no click at the cut
     voice_path, words, vol = None, [], 0.25
     if mode == "replace":
-        text = write_commentary(transcript, streamer, title, max_words=max(8, int(dur * 2.4)), game_name=game_name)
+        text = write_commentary(transcript, streamer, title, max_words=max(8, int(dur * 2.4)), game_name=game_name, context=context)
         if text:
             voice_path = TEMP_DIR / f"{stem}_voice.mp3"
             words = synthesize(text, voice_path)
@@ -134,7 +145,7 @@ def build_audio(video: Path, mode: str, stem: str, transcript: str = "",
     out = TEMP_DIR / f"{stem}_mix.m4a"
     if voice_path and not music:   # voice-over only
         cmd = [FFMPEG_BIN, "-y", "-i", str(video), "-i", str(voice_path), "-filter_complex",
-               f"[1:a]volume=1.4,apad,atrim=0:{dur:.2f},loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5[out]",
+               f"[1:a]volume=1.4,apad,atrim=0:{dur:.2f},loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5{FADE}[out]",
                "-map", "[out]", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", str(out)]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return out, words, mode
@@ -143,11 +154,11 @@ def build_audio(video: Path, mode: str, stem: str, transcript: str = "",
         cmd += ["-i", str(voice_path)]
         fc = (f"[1:a]volume=0.22,atrim=0:{dur:.2f},afade=t=out:st={max(dur-1,0):.2f}:d=1[m];"
               f"[2:a]volume=1.4,apad[v];[m][v]amix=inputs=2:duration=first:normalize=0,"
-              f"atrim=0:{dur:.2f},loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5[out]")
+              f"atrim=0:{dur:.2f},loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5{FADE}[out]")
     else:  # bed
         fc = (f"[0:a]volume=0.35[o];[1:a]volume=0.2,atrim=0:{dur:.2f}[m];"
               f"[o][m]amix=inputs=2:duration=first:normalize=0,"
-              f"loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5[out]")
+              f"loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5{FADE}[out]")
     cmd += ["-filter_complex", fc, "-map", "[out]", "-c:a", "aac", "-b:a", "192k",
             "-ar", "48000", "-ac", "2", str(out)]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
