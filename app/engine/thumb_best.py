@@ -211,26 +211,116 @@ def _fit(raw: bytes, mode: str, out: Path) -> Path:
     return out
 
 
-def draw(prompt: str, out: Path, mode: str) -> Optional[Path]:
-    """Ask FLUX (Cloudflare Workers AI) for one picture. Returns the saved file, or None (not set up, quota used up, busy). Records the picture for billing only when it worked."""
+def _why(status: int, body) -> str:
+    """What a Cloudflare refusal means, in plain words."""
+    msg = ""
+    try:
+        errs = (body or {}).get("errors") or []
+        msg = "; ".join(str(e.get("message") or "") for e in errs if isinstance(e, dict))[:160]
+    except Exception:
+        pass
+    if status in (401, 403):
+        return ("Cloudflare refused the token or the free limit for today is used up" + (f" ({msg})" if msg else "") +
+                ". Check that the API token has Workers AI -> Read and Edit, belongs to this account, and was pasted whole.")
+    if status == 404:
+        return "Cloudflare does not know this account ID. Check the Account ID (32 letters and numbers) on the Workers AI -> REST API page."
+    if status == 429:
+        return "The free allowance for today is used up (it resets at 00:00 UTC). Thumbnails are made the Better way until then."
+    return f"Cloudflare answered with an error (HTTP {status}{': ' + msg if msg else ''})."
+
+
+def _note(ok: bool, why: str = "") -> None:
+    """Remember the last outcome so Settings can show it (the Test button and the last real thumbnail)."""
+    try:
+        import time as _t
+        from app.models import System
+        System.set_fields("thumb_best", {"last_ok": ok, "last_error": "" if ok else why[:300], "last_t": _t.time()}, upsert=True)
+    except Exception:
+        pass
+
+
+def _request(prompt: str) -> Tuple[Optional[bytes], str]:
+    """One FLUX call. Returns (picture bytes, "") or (None, the reason in plain words)."""
     if not cloudflare_ready():
-        return None
+        return None, "The Cloudflare account ID and API token are not both saved yet."
     acc, tok = os.environ["CLOUDFLARE_ACCOUNT_ID"].strip(), os.environ["CLOUDFLARE_API_TOKEN"].strip()
     try:
         r = requests.post(f"https://api.cloudflare.com/client/v4/accounts/{acc}/ai/run/{CF_MODEL}", headers={"Authorization": f"Bearer {tok}"},
                           json={"prompt": prompt[:2000], "steps": 4}, timeout=120)
-        if r.status_code != 200:
-            print(f"[Thumbnail] FLUX did not answer (HTTP {r.status_code}{': quota used up for today' if r.status_code in (429, 403) else ''})", flush=True)
-            return None
+    except requests.RequestException as e:
+        return None, f"Could not reach Cloudflare ({type(e).__name__})."
+    try:
         data = r.json()
-        b64 = ((data.get("result") or data).get("image")) if isinstance(data, dict) else None
-        if not b64:
-            print("[Thumbnail] FLUX answered without a picture", flush=True)
-            return None
-        _fit(base64.b64decode(b64), mode, out)
+    except Exception:
+        data = {}
+    if r.status_code != 200:
+        return None, _why(r.status_code, data)
+    b64 = ((data.get("result") or data).get("image")) if isinstance(data, dict) else None
+    if not b64:
+        return None, "Cloudflare answered but sent no picture."
+    try:
+        return base64.b64decode(b64), ""
+    except Exception:
+        return None, "Cloudflare sent a picture the studio could not read."
+
+
+def test() -> Dict:
+    """The Settings test: are the keys the right shape, does Cloudflare draw a picture, does Gemini answer? Says what is wrong in plain words. Nothing is billed."""
+    acc, tok = (os.environ.get("CLOUDFLARE_ACCOUNT_ID") or "").strip(), (os.environ.get("CLOUDFLARE_API_TOKEN") or "").strip()
+    if not acc or not tok:
+        return {"ok": False, "message": "Save the Cloudflare account ID and the API token first (both boxes), then test again."}
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", acc):
+        hint = " It looks like the token was pasted into the account ID box." if len(acc) > 36 else ""
+        return {"ok": False, "message": "The account ID should be 32 letters and numbers with no spaces." + hint + " Copy it again from the Workers AI -> REST API page."}
+    if tok == acc or acc in tok:
+        return {"ok": False, "message": "The same value is in both boxes. The account ID goes in the first box and the long API token in the second."}
+    if len(tok) < 30 or re.search(r"\s", tok):
+        return {"ok": False, "message": "The API token looks too short or has a space in it. Create a new token and copy all of it."}
+    raw, why = _request("a simple red apple on a wooden table, bright colours")
+    if raw is None:
+        _note(False, why)
+        return {"ok": False, "message": why}
+    try:
+        from PIL import Image
+        size = Image.open(io.BytesIO(raw)).size
+    except Exception:
+        size = (0, 0)
+    _note(True)
+    msg = f"Cloudflare drew a test picture ({size[0]}x{size[1]}). "
+    if not gemini_ready():
+        return {"ok": False, "message": msg + "But the Gemini key is not saved, and Best needs it to plan the thumbnail."}
+    try:
+        _gemini_json([{"text": 'Reply with exactly this JSON: {"ok": true}'}], "thumb-test", 40)
     except Exception as e:
-        print(f"[Thumbnail] FLUX failed ({type(e).__name__}: {str(e)[:100]})", flush=True)
+        return {"ok": False, "message": msg + f"But Gemini did not answer ({str(e)[:100]}). Check the Gemini key."}
+    return {"ok": True, "message": msg + "Gemini answered too. Best thumbnails are ready."}
+
+
+def status() -> Dict:
+    try:
+        from app.models import System
+        d = System.find_one(id="thumb_best") or {}
+    except Exception:
+        d = {}
+    return {"cloudflare": cloudflare_ready(), "gemini": gemini_ready(), "ready": ready(), "last_ok": d.get("last_ok"), "last_error": d.get("last_error") or "", "last_t": d.get("last_t") or 0}
+
+
+def draw(prompt: str, out: Path, mode: str) -> Optional[Path]:
+    """Ask FLUX (Cloudflare Workers AI) for one picture. Returns the saved file, or None (not set up, quota used up, busy). Records the picture for billing only when it worked."""
+    if not cloudflare_ready():
         return None
+    raw, why = _request(prompt)
+    if raw is None:
+        print(f"[Thumbnail] FLUX did not draw it: {why}", flush=True)
+        _note(False, why)
+        return None
+    try:
+        _fit(raw, mode, out)
+    except Exception as e:
+        print(f"[Thumbnail] FLUX picture could not be used ({type(e).__name__}: {str(e)[:100]})", flush=True)
+        _note(False, "Cloudflare sent a picture the studio could not read.")
+        return None
+    _note(True)
     try:
         from app.models import UsageEvent
         UsageEvent.record("image", provider="flux", task="thumbnail", units=1)

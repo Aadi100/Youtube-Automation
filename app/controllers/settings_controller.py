@@ -134,6 +134,17 @@ def h_tpl_test(h):
     h.send_json(200 if ok else 400, {"ok": ok, "message": msg} if ok else {"error": msg})
 
 
+# ---- Best thumbnails: is Cloudflare (FLUX) + Gemini working? (Settings -> Accounts & keys -> Best thumbnails)
+def h_thumbbest(h):
+    from app.engine import thumb_best
+    h.send_json(200, thumb_best.status())
+
+
+def h_thumbbest_test(h):
+    from app.engine import thumb_best
+    h.send_json(200, {**thumb_best.test(), "status": thumb_best.status()})
+
+
 def h_music(h):
     h.send_json(200, [{"name": p.name, "mb": round(p.stat().st_size / 1e6, 1)}
                       for p in sorted(MUSIC_DIR.iterdir()) if p.suffix.lower() in MUSIC_EXT])
@@ -180,11 +191,13 @@ ROUTES = [
     (r"/api/email-templates", "DELETE", h_tpl_delete),
     (r"/api/email-templates/preview", "POST", h_tpl_preview),
     (r"/api/email-templates/test", "POST", h_tpl_test),
+    (r"/api/thumb-best", "GET", h_thumbbest),
+    (r"/api/thumb-best/test", "POST", h_thumbbest_test),
     (r"/api/music", "GET", h_music),
     (r"/api/music", "POST", h_music_upload),
     (r"/api/music", "DELETE", h_music_delete),
 ]
 OWNER_ONLY.update({h_claude_models, h_settings,h_settings_put, h_email_test, h_music_upload, h_music_delete,
-                   h_ytaccess, h_ytaccess_proxy_delete, h_ytaccess_test, h_tpl, h_tpl_put, h_tpl_delete, h_tpl_preview, h_tpl_test})
+                   h_ytaccess, h_ytaccess_proxy_delete, h_ytaccess_test, h_tpl, h_tpl_put, h_tpl_delete, h_tpl_preview, h_tpl_test, h_thumbbest, h_thumbbest_test})
 bp = Blueprint("settings", __name__)
 register(bp, ROUTES)

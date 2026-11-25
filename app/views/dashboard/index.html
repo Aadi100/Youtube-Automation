@@ -167,6 +167,19 @@ video{width:100%;max-height:440px;background:#000;border-radius:12px}
 /* ---- settings */
 .settings{display:grid;grid-template-columns:230px 1fr;gap:22px;align-items:start}
 .stabs{position:sticky;top:20px;display:flex;flex-direction:column;gap:4px}
+.stabh{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);opacity:.75;padding:14px 14px 4px}
+.stabh:first-child{padding-top:0}
+.fgrp{border:1px solid var(--line);border-radius:16px;margin:0 0 12px;background:var(--panel2)}
+.fgrp>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:14px 16px;font-weight:700;font-size:15px}
+.fgrp>summary::-webkit-details-marker{display:none}
+.fgrp>summary:after{content:"";margin-left:auto;width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);transition:transform .2s}
+.fgrp[open]>summary:after{transform:rotate(-135deg)}
+.fgrp>summary .fgn{font-weight:500;font-size:12px;color:var(--muted)}
+.fgrp>.fields{padding:0 16px 16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.fgrp.fold>:not(summary){margin-left:16px;margin-right:16px}
+.fgrp.fold>:last-child{margin-bottom:16px}
+.fgrp.fold>summary span:first-child:not(.fgn){display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--accent,#ff7a18);color:#1a1004;font-size:13px}
+.fgrp>.fgd{padding:0 16px 8px;margin:-4px 0 0}
 .stabs button{justify-content:flex-start;width:100%;background:transparent;border-color:transparent;color:var(--muted);padding:11px 14px}
 .stabs button svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .stabs button:hover{background:var(--panel2);color:var(--text)}
@@ -2668,8 +2681,8 @@ async function users() {
       ["Reserve taken when a video starts (the unused part is returned)", [["hold_short", "Short"], ["hold_compilation", "Compilation"]]],
       ["Members", [["signup_bonus", "Welcome gift for new members (tokens)"], ["daily_uploads", "Uploads per member per day (default)"]]]];
     $("#uprice").innerHTML = `<div class="sechead"><h2>Token prices</h2><span class="muted">Members pay for what each video really used, at these prices. A failed step or a failed video is never charged. Your own videos are free but are recorded. <a href="#/reports">See the reports</a>.</span></div>
-      ${GROUPS.map(([t, items]) => `<h3 style="margin:14px 0 6px;font-size:14px">${t}</h3><div class="fields">${items.map(([k, l]) =>
-        `<div><label>${l}</label><input type="number" min="0" max="100000" step="0.1" data-pr="${k}" value="${pr[k]}"></div>`).join("")}</div>`).join("")}
+      ${GROUPS.map(([t, items], gi) => `<details class="fgrp" ${gi < 3 ? "open" : ""}><summary>${t}</summary><div class="fields">${items.map(([k, l]) =>
+        `<div><label>${l}</label><input type="number" min="0" max="100000" step="0.1" data-pr="${k}" value="${pr[k]}"></div>`).join("")}</div></details>`).join("")}
       <div class="row" style="margin-top:14px"><button class="pri" id="pr_save">Save prices</button></div>`;
     $("#pr_save").onclick = guard(async () => { const body = {}; document.querySelectorAll("[data-pr]").forEach(i => body[i.dataset.pr] = i.value); await api("/api/admin/pricing", {method: "PUT", body}); toast("Prices saved"); load(); });
     const dd = await api("/api/admin/diy");
@@ -3106,6 +3119,32 @@ async function settings() {
     {id: "music", icon: "music", title: "Music",
      desc: "Royalty-free tracks used under the AI commentary. Only use tracks you have the licence for (for example the YouTube Audio Library)."},
   ];
+  const TABGROUP = {prefs: 0, yt: 0, src: 0, audme: 0, clip: 0, saver: 0, conn: 1, ytx: 1, aud: 1, pricing: 1, mail: 2, tpl: 2, music: 2};
+  const TABHEAD = ["My account", "The studio (owner)", "Email and files (owner)"];
+  const GROUPS = {   // [title, hint, [keys], opened?]
+    conn: [["Find clips", "Twitch and YouTube. Needed for clips and live streams.", ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET", "YOUTUBE_API_KEY"], true],
+           ["AI that writes", "Titles, descriptions and commentary.", ["GEMINI_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "TITLE_AI"], true],
+           ["Best thumbnails", "FLUX on Cloudflare draws the Best thumbnail level.", ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"], true],
+           ["Research search (optional)", "Only for the clipping research.", ["RESEARCH_PROVIDER", "TAVILY_API_KEY", "BRAVE_API_KEY"], false],
+           ["Members signing in with YouTube", "Google sign-in for members, and the daily upload allowance.", ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YT_DAILY_UPLOADS", "YT_DAILY_UNITS", "CONTACT_EMAIL"], false],
+           ["Advanced: model names", "Leave these alone unless a model is retired.", ["GEMINI_MODEL", "DEEPSEEK_MODEL", "ANTHROPIC_MODEL", "ANTHROPIC_RESEARCH_MODEL", "ANTHROPIC_TITLE_MODEL", "LLM_SPLIT"], false]],
+    aud: [["Who the clips are from", "What members get until they choose their own.", ["CLIP_COUNTRIES", "CLIP_LANGUAGES"], true],
+          ["Voice and sound", "The narrator, the creator's own audio, and listening for loud moments.", ["DEFAULT_AUDIO_MODE", "TTS_VOICE", "SOUND_PEAKS"], true],
+          ["Thumbnails", "How the artwork is made.", ["AI_THUMBNAILS", "AI_IMAGE_PROVIDER", "THUMB_TEXT", "THUMB_REVIEW"], true],
+          ["Safety", "The safety check always runs. These only change how it looks.", ["SAFE_MODE", "SAFETY_AI_FRAMES", "SAFETY_AI_WIDTH", "SAFETY_FINAL_AI"], false],
+          ["Live streams", "How live streams are watched.", ["LIVE_WATCH_MINUTES", "LIVE_STREAMS"], false]],
+    mail: [["Mail server", "", ["SMTP_HOST", "SMTP_PORT", "SMTP_SECURITY", "SMTP_USER", "SMTP_PASSWORD"], true],
+           ["Who sends and who receives", "", ["SMTP_FROM", "NOTIFY_TO", "PUBLIC_BASE_URL"], true]]};
+  const groupedFields = (sec, st) => {
+    const have = sec.keys.filter(k => st[k]), used = new Set();
+    const groups = (GROUPS[sec.id] || []).map(([t, hint, keys, open]) => { const ks = keys.filter(k => st[k]); ks.forEach(k => used.add(k)); return [t, hint, ks, open]; });
+    const rest = have.filter(k => !used.has(k));
+    if (rest.length) groups.push(["Other", "", rest, false]);
+    return groups.filter(g => g[2].length).map(([t, hint, ks, open]) => {
+      const set = ks.filter(k => !SELECTS[k] && st[k] && (st[k].secret ? st[k].set : st[k].value)).length, shown = ks.filter(k => !SELECTS[k]).length;
+      return `<details class="fgrp" ${open ? "open" : ""}><summary>${t}${shown > 1 || ks.some(k => st[k].secret) ? `<span class="fgn">${set} of ${shown} filled in</span>` : ""}</summary>${hint ? `<div class="help fgd">${hint}</div>` : ""}<div class="fields">${ks.map(k => field(k, st[k])).join("")}</div>${t === "Best thumbnails" ? `<div class="row" style="padding:0 16px 16px;gap:12px;align-items:center;flex-wrap:wrap"><button type="button" id="bt_test" class="pri">Test Best thumbnails now</button><span class="muted" id="bt_res">Save the keys first: the test uses what is saved.</span></div>` : ""}</details>`;
+    }).join("");
+  };
   if (!isOwner) SECTIONS.splice(0, SECTIONS.length, ...SECTIONS.filter(x => ["prefs", "yt", "clip", "audme", "src", "saver"].includes(x.id)));   // members never see server-wide settings
   const META = {
     TWITCH_CLIENT_ID: ["Twitch client ID", "Free at dev.twitch.tv/console. Needed for Twitch clips and live streams."],
@@ -3175,9 +3214,11 @@ async function settings() {
     <div class="settings"><div class="stabs" id="stabs"></div><div id="spanes"></div></div>`;
   const state = {tab: isOwner ? "conn" : "prefs"};
   const paintTabs = (s) => {
-    $("#stabs").innerHTML = SECTIONS.map(sec => {
+    let lastHead = -1;
+    $("#stabs").innerHTML = SECTIONS.slice().sort((a, b) => (TABGROUP[a.id] ?? 1) - (TABGROUP[b.id] ?? 1)).map(sec => {
+      const g = TABGROUP[sec.id] ?? 1, head = (isOwner && g !== lastHead) ? `<div class="stabh">${TABHEAD[g]}</div>` : ""; lastHead = g;
       const ok = sec.status ? sec.status.every(k => s[k] && (s[k].secret ? s[k].set : s[k].value)) : null;
-      return `<button data-t="${sec.id}" class="${state.tab === sec.id ? "on" : ""}">${svg(sec.icon)}<span>${sec.title}</span>` +
+      return head + `<button data-t="${sec.id}" class="${state.tab === sec.id ? "on" : ""}">${svg(sec.icon)}<span>${sec.title}</span>` +
         (ok === null ? "" : `<span class="st ${ok ? "ok" : "warn"}">${ok ? "Ready" : "Set up"}</span>`) + `</button>`;
     }).join("");
     document.querySelectorAll("#stabs button").forEach(b => b.onclick = () => {
@@ -3196,7 +3237,7 @@ async function settings() {
     paintTabs(s);
     $("#spanes").innerHTML = SECTIONS.map(sec => `<div class="card spane" data-p="${sec.id}" ${state.tab === sec.id ? "" : "hidden"}>
       <h2>${svg(sec.icon).replace("<svg", '<svg width="18" height="18" style="stroke:currentColor;fill:none;stroke-width:1.8"')}${sec.title}</h2><p class="secdesc">${sec.desc}</p>
-      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "saver" ? `<div id="savercfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>
+      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "saver" ? `<div id="savercfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `${GROUPS[sec.id] || sec.id === "conn" ? groupedFields(sec, s) : `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>`}
         <div class="savebar"><button class="pri" data-save>Save changes</button>${sec.id === "mail" ? `<button id="mt">Send test email</button><span class="muted" id="mres"></span>` : ""}
         <span class="muted">Stored in the local .env file.</span></div>`
       : `<div class="row"><input type="file" id="mf" accept=".mp3,.wav,.m4a,.ogg,.flac" class="grow"><button id="mu" class="pri">Upload track</button></div><div id="mlist" style="margin-top:14px"></div>`}
@@ -3216,7 +3257,15 @@ async function settings() {
       try { const r = await api("/api/email/test", {method: "POST"}); $("#mres").innerHTML = `<span style="color:var(--ok)">✔</span> ${esc(r.message)}`; }
       catch (e) { $("#mres").innerHTML = `<span style="color:var(--bad)">✖</span> ${esc(e.message)}`; }
     });
-    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); loadSaver(); if (isOwner) { loadPricing(); loadYtx(); loadTpl(); }
+    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); loadSaver();
+    if (isOwner && $("#bt_test")) {
+      api("/api/thumb-best").then(st => { if (st.last_error && $("#bt_res")) $("#bt_res").innerHTML = `<span style="color:var(--bad)">✖ The last Best thumbnail fell back to Better: ${esc(st.last_error)}</span>`; else if (st.last_ok && $("#bt_res")) $("#bt_res").innerHTML = `<span style="color:var(--ok)">✔ The last Best thumbnail worked.</span>`; }).catch(() => {});
+      $("#bt_test").onclick = guard(async () => {
+        $("#bt_res").textContent = "Testing (up to a minute)…"; $("#bt_test").disabled = true;
+        try { const r = await api("/api/thumb-best/test", {method: "POST"}); $("#bt_res").innerHTML = `<span style="color:var(--${r.ok ? "ok" : "bad"})">${r.ok ? "✔" : "✖"}</span> ${esc(r.message)}`; }
+        finally { $("#bt_test").disabled = false; }
+      });
+    } if (isOwner) { loadPricing(); loadYtx(); loadTpl(); }
     if ($("#mu")) {
       $("#mu").onclick = guard(async () => {
         const f = $("#mf").files[0]; if (!f) throw new Error("Choose a file first");
@@ -3349,10 +3398,20 @@ async function settings() {
       <div class="pxhelper"><b>Set the AI and picture prices from my costs</b><span class="muted">Price = what the platform charges × (1 + margin) ÷ what one token is worth. Uses how your AI tokens split between input and output
           (Gemini ${mixTxt("gemini")}, DeepSeek ${mixTxt("deepseek")}, Claude ${mixTxt("claude")}). Nothing is saved until you press Save.</span>
         <div class="row" style="gap:10px;margin-top:8px"><div class="pxf"><label>Margin on top, %</label><input id="px_margin" type="number" min="0" max="10000" step="10" value="100" style="max-width:140px"></div><button type="button" id="px_fill">Fill in the prices</button><span class="muted" id="px_fillmsg"></span></div></div>
-      ${PX_PRICE_GROUPS.map(([t, items]) => `<h4 class="pxg">${esc(t)}</h4><div class="fields">${items.map(([k, l]) => `<div><label>${esc(l)}</label><input data-pp="${k}" type="number" min="0" step="0.01" value="${fmt(o.pricing[k], 4)}"><div class="help" id="pph_${k}"></div></div>`).join("")}</div>`).join("")}
+      ${PX_PRICE_GROUPS.map(([t, items], gi) => `<details class="fgrp" ${gi < 3 ? "open" : ""}><summary>${esc(t)}</summary><div class="fields">${items.map(([k, l]) => `<div><label>${esc(l)}</label><input data-pp="${k}" type="number" min="0" step="0.01" value="${fmt(o.pricing[k], 4)}"><div class="help" id="pph_${k}"></div></div>`).join("")}</div></details>`).join("")}
       <h3 class="pxh"><span>4</span> What one video earns you</h3>
       <div class="pxpreview" id="px_prev"></div>
       <div class="savebar"><button class="pri" id="px_save">Save prices and costs</button><button type="button" id="px_reset">Undo my changes</button><span class="muted" id="px_msg"></span></div>`;
+    (() => {                                   // each numbered step folds away; the long "what the platforms charge you" list starts closed
+      let cur = null;
+      [...box.children].forEach(k => {
+        if (k.matches("h3.pxh")) {
+          cur = document.createElement("details"); cur.className = "fgrp fold"; cur.open = !/platforms charge/i.test(k.textContent);
+          const sm = document.createElement("summary"); sm.innerHTML = k.innerHTML; cur.append(sm); box.replaceChild(cur, k);
+        } else if (k.classList.contains("savebar")) cur = null;        // the Save button always stays in view
+        else if (cur) cur.append(k);
+      });
+    })();
     /* ---- reading the form */
     const num = el => { const v = parseFloat(el.value); return Number.isFinite(v) ? v : 0; };
     const costs = () => { const c = {}; box.querySelectorAll("[data-px]").forEach(i => c[i.dataset.px] = num(i)); return c; };
