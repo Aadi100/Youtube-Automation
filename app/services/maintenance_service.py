@@ -59,7 +59,7 @@ def reap_stale_scans(hours: int = 3) -> int:
 
 
 def maintenance() -> None:
-    last = {"clean": 0.0, "alert": 0.0, "scans": 0.0}
+    last = {"clean": 0.0, "alert": 0.0, "scans": 0.0, "storage": 0.0}
     first = True
     while True:
         if not first:
@@ -88,6 +88,11 @@ def maintenance() -> None:
             if time.time() - last["alert"] > 300:
                 last["alert"] = time.time()
                 _check_alerts()
+            if time.time() - last["storage"] > 3600:
+                last["storage"] = time.time()
+                billed = storage.bill_extra_storage()
+                if billed:
+                    print(f"[studio] extra storage charged to {billed} member(s)")
         except Exception as e:
             print(f"[studio] maintenance error: {e}")
 

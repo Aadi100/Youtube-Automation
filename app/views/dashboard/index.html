@@ -2595,6 +2595,8 @@ async function users() {
       ["AI text: tokens charged per 1,000 AI tokens (the AI service reports the real number)", [["gemini_per_1k", "Gemini (text and safety review)"], ["deepseek_per_1k", "DeepSeek"], ["claude_per_1k", "Claude (High thumbnails)"]]],
       ["Images: per image", [["image_free", "Free image service"], ["image_gemini", "Gemini image"]]],
       ["Parts that run on your own server (0 = free)", [["tts_per_1k_chars", "Voice: per 1,000 characters"], ["whisper_per_min", "Captions: per minute of speech"], ["safety_local_per_clip", "Local safety check: per clip"]]],
+      ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["youtube_source", "Extra for a clip from YouTube"]]],
+      ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
       ["Uploading to YouTube: per upload", [["upload_short", "Short"], ["upload_compilation", "Compilation"]]],
       ["Reserve taken when a video starts (the unused part is returned)", [["hold_short", "Short"], ["hold_compilation", "Compilation"]]],
       ["Members", [["signup_bonus", "Welcome gift for new members (tokens)"], ["daily_uploads", "Uploads per member per day (default)"]]]];
@@ -3183,6 +3185,8 @@ async function settings() {
     ["AI text, per 1,000 AI tokens", [["gemini_per_1k", "Gemini (text and safety review)"], ["deepseek_per_1k", "DeepSeek (text)"], ["claude_per_1k", "Claude (thumbnails)"]]],
     ["Pictures, each", [["image_free", "Free image service"], ["image_gemini", "Gemini picture"]]],
     ["Parts that run on your own computer (0 = free)", [["tts_per_1k_chars", "Voice, per 1,000 characters"], ["whisper_per_min", "Captions, per minute of speech"], ["safety_local_per_clip", "Local safety check, per clip"]]],
+    ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["youtube_source", "Extra for a clip from YouTube"]]],
+    ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
     ["Uploading to YouTube, each", [["upload_short", "Short"], ["upload_compilation", "Compilation"]]],
     ["Reserve taken when a video starts (the unused part comes back)", [["hold_short", "Short"], ["hold_compilation", "Compilation"]]],
     ["Members", [["signup_bonus", "Welcome gift (tokens)"], ["daily_uploads", "Uploads per member per day"]]]];
@@ -3252,7 +3256,7 @@ async function settings() {
       /* a typical video */
       const T = o.typical, fix = (kind, label) => {
         const t = T[kind], gem = t.gemini_tokens, ds = t.deepseek_tokens, cl = t.claude_tokens || 0, extra = +(($("#px_pics_" + kind) || {}).value || 0);
-        const tokens = gem / 1000 * p.gemini_per_1k + ds / 1000 * p.deepseek_per_1k + cl / 1000 * p.claude_per_1k + (t.images || 0) * p.image_free + extra * p.image_gemini + (kind === "short" ? p.safety_local_per_clip : p.safety_local_per_clip * 4);
+        const tokens = gem / 1000 * p.gemini_per_1k + ds / 1000 * p.deepseek_per_1k + cl / 1000 * p.claude_per_1k + (t.images || 0) * p.image_free + extra * p.image_gemini + (kind === "short" ? p.safety_local_per_clip : p.safety_local_per_clip * 4) + p.search_per_video + (kind === "short" ? p.render_short : p.render_compilation);
         const up = kind === "short" ? p.upload_short : p.upload_compilation, pay = (tokens + up) * tu;
         const real = gem / 1000 * blend(c, "gemini", "gemini") + ds / 1000 * blend(c, "deepseek", "deepseek") + cl / 1000 * blend(c, "claude", "claude") + (t.images || 0) * c.image_free_usd + extra * c.image_gemini_usd;
         const profit = pay - real;

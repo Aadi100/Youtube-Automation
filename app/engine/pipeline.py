@@ -74,6 +74,29 @@ def _manifest(kind: str, video: Path, thumb: Path, meta: Dict, audio_mode: str, 
     }
 
 
+def _usage(kind: str, provider: str, units: float = 1.0) -> None:
+    """Write down one thing this run used (priced and charged when the job is settled; failed jobs are never charged). Never raises."""
+    try:
+        from app.models import UsageEvent
+        UsageEvent.record(kind, provider=provider, task=kind, units=units)
+    except Exception:
+        pass
+
+
+def _bill_finding(found, mode: str, own: bool) -> None:
+    """Finding the clip is used by every automatic run (a clip the member gave themselves is not searched for); a YouTube clip costs a little extra."""
+    if own or not found:
+        return
+    _usage("search", "studio", 1)
+    n = sum(1 for c in found if c.get("source") == "youtube")
+    if n:
+        _usage("source", "youtube", n)
+
+
+def _bill_render(mode: str) -> None:
+    _usage("render", "compilation" if "compilation" in mode else "short", 1)
+
+
 def run_short_pipeline(
     input_video: Path,
     layout: str = "blur",
@@ -397,6 +420,7 @@ def main():
                                           min_seconds=15, max_seconds=58, game=game, creator=creator)
             if not found:
                 raise SystemExit("No new clips found.")
+        _bill_finding(found, a.mode, own=bool(a.clip_file or a.url))        # what this run used besides AI: finding the clip (and the YouTube extra)
         if creator and a.game == "auto" and found and found[0].get("game_name"):
             game = {**game, "name": found[0]["game_name"]}       # a creator's clip knows its game: use it for the title and thumbnail
         if a.mode == "auto-short":
@@ -412,6 +436,7 @@ def main():
             clips = [{**c, "path": Path(c["path"])} for c in found]
             out = run_compilation_pipeline(clips, a.title, audio_mode=a.audio_mode,
                                            target_minutes=a.target_minutes, game=game)
+        _bill_render(a.mode)                                                  # the video was made: the render is used
         try:
             Clip.mark_used(out["clip_ids"], out.get("video_id"))
         except Exception as e:

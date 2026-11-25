@@ -241,6 +241,10 @@ def start(uid, scope: str, query: str, platforms: List[str], language: str, dept
         raise ValueError(f"Research with {info['name']}: {info['why']} Add it in Settings -> Accounts & keys, or choose another AI.")
     if ResearchRun.total(user_id=str(uid), status="running"):
         raise ValueError("A research is already running. Wait for it to finish.")
+    from app.services import token_service as tokens
+    why = tokens.small_shortfall(uid, "research_run")
+    if why:
+        raise ValueError(why)
     searches = DEPTH.get(depth, DEPTH["normal"])
     model_id = _s(model_id, 80)
     if model_id and not re.fullmatch(r"[A-Za-z0-9._:\-]+", model_id):
@@ -276,6 +280,8 @@ def _run(uid: str, rid: str, scope: str, query: str, platforms: List[str], langu
         data = _json_of(text)
         leads = [c for c in (clean_lead(l, known) for l in (data.get("leads") or [])[:MAX_LEADS]) if c]
         saved = [_save_lead(uid, rid, c) for c in leads]
+        from app.services import token_service as tokens
+        tokens.charge_action(uid, "research_run", ref=rid)               # a finished run is paid for; a failed one is free
         unverified = sum(1 for c in leads if not c["verified"])
         _set(rid, status="done", message=f"{len(leads)} lead{'s' if len(leads) != 1 else ''} found" + (f" ({unverified} without proof, shown as unknown)" if unverified else "")
              + (" - the answer was too long, so only the finished ones are kept; run it again with fewer platforms to see more" if data.get("_partial") else ""),

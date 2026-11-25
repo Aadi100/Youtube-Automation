@@ -28,6 +28,14 @@ DEFAULT_PRICING = {
     "tts_per_1k_chars": 0.0,         # narrator voice, per 1,000 characters (free service; raise it if you want to charge for server time)
     "whisper_per_min": 0.0,          # captions: per minute of speech transcribed (runs on your server)
     "safety_local_per_clip": 0.0,    # the local nudity detector, per clip checked (runs on your server)
+    "search_per_video": 0.5,         # finding the clip: search, sound analysis, picking the moment (charged only when a video is made)
+    "render_short": 0.5,             # rendering a Short on the server (cutting, fades, effects)
+    "render_compilation": 3.0,       # rendering a compilation
+    "youtube_source": 0.3,           # extra for a clip that came from YouTube (covers the proxy data); 0 for other sources
+    "finder_scan": 0.5,              # one Clip Finder scan (CPU and bandwidth)
+    "editor_render": 0.3,            # one render in the Editor
+    "research_run": 4.0,             # one clipping-research run (the search costs more than normal AI text)
+    "storage_extra_gb_month": 1.0,   # each GB a member keeps above the free storage, per month (charged a little each day)
     "upload_short": 3.0,             # every upload of a Short to YouTube
     "upload_compilation": 8.0,       # every upload of a compilation
     "hold_short": 20.0,              # reserved when a Short is queued (the unused part is returned)
@@ -151,6 +159,12 @@ def price_event(e: Dict, p: Dict) -> float:
         return float(e.get("units") or 0) / 60.0 * p["whisper_per_min"]
     if k == "safety_local":
         return float(e.get("units") or 0) * p["safety_local_per_clip"]
+    if k == "search":
+        return float(e.get("units") or 0) * p["search_per_video"]
+    if k == "render":
+        return float(e.get("units") or 0) * (p["render_compilation"] if prov == "compilation" else p["render_short"])
+    if k == "source":
+        return float(e.get("units") or 0) * p["youtube_source"]
     return 0.0
 
 
@@ -160,6 +174,8 @@ _LINES = {
     ("image", "gemini"): ("Images (Gemini)", "images"), ("image", "free"): ("Images (free service)", "images"),
     ("tts", ""): ("Narrator voice", "characters"), ("whisper", ""): ("Captions (speech to text)", "minutes"),
     ("safety_local", ""): ("Local safety check", "clips"),
+    ("search", ""): ("Finding the clip", "clips"), ("render", "short"): ("Video rendering", "videos"), ("render", "compilation"): ("Video rendering", "videos"),
+    ("source", "youtube"): ("Clip sourcing", "clips"),
 }
 
 
@@ -181,6 +197,12 @@ def member_label(label: str) -> Tuple[str, str]:
         return prefix + "Captions", "minutes"
     if "safety check" in low:
         return prefix + "Safety check", ""
+    if "finding the clip" in low:
+        return prefix + "Finding the clip", ""
+    if "video rendering" in low:
+        return prefix + "Making the video", ""
+    if "clip sourcing" in low:
+        return prefix + "Clip sourcing", ""
     if "upload" in low:
         return prefix + "Upload to YouTube", "upload"
     return prefix + "Other", ""
@@ -211,7 +233,7 @@ def price_events(events: List[Dict], p: Optional[Dict] = None) -> Tuple[float, L
         if not e.get("ok", True):
             continue
         k, prov = e.get("kind"), e.get("provider")
-        key = (k, prov if k in ("llm", "image") else "")
+        key = (k, prov if k in ("llm", "image", "render", "source") else "")
         if key not in _LINES:
             continue
         label, unit = _LINES[key]
@@ -237,6 +259,66 @@ def _store_costs(job_id: str, video_id, total: float, receipt: List[Dict], per_e
         else:
             fields = {"cost_tokens": amount, "charged_tokens": charged, "receipt": receipt}
         Video.update_where(id=oid(str(video_id)), fields=fields)
+
+
+# ------------------------------------------------------------------ small paid actions (fractions of a token are collected until they make a whole one)
+ACTIONS = {   # price key -> (usage kind, provider, ledger reason, what to call it in a message)
+    "finder_scan": ("scan", "finder", "Clip Finder scan", "A Clip Finder scan"),
+    "editor_render": ("edit", "editor", "Editor render", "An Editor render"),
+    "research_run": ("research", "run", "Research run", "A research run"),
+}
+
+
+def _is_member(uid: str) -> bool:
+    user = User.find_one(id=oid(str(uid)))
+    return bool(user and user.get("role") != "owner")
+
+
+def small_shortfall(uid, key: str) -> Optional[str]:
+    """A message when a member cannot afford this action, else None. The owner is never stopped. A price of 0 is always fine."""
+    price = float(pricing().get(key) or 0)
+    if price <= 0 or not _is_member(uid):
+        return None
+    need, have = max(1, _up(price)), balance(uid)
+    if have >= need:
+        return None
+    name = ACTIONS.get(key, ("", "", "", "This"))[3]
+    return f"Not enough tokens: {name.lower()} costs {price:g} token{'' if price == 1 else 's'} and you have {have}. Ask the owner for more."
+
+
+def charge_small(uid, amount: float, reason: str, kind: str, provider: str, units: float = 1.0, ref: Optional[str] = None) -> int:
+    """Take `amount` tokens from a member for a small action. Fractions are collected on the account (token_frac) and only whole tokens are taken,
+    so a 0.5-token action costs 1 token every second time. The owner is never charged, but the use is recorded for the reports. Returns tokens taken now."""
+    amount = float(amount or 0)
+    if amount <= 0:
+        return 0
+    member = _is_member(uid)
+    taken = 0
+    if member:
+        col = User._get_collection()
+        doc = col.find_one_and_update({"_id": oid(str(uid))}, {"$inc": {"token_frac": amount}}, return_document=True)
+        whole = int(float((doc or {}).get("token_frac") or 0) + 1e-9)
+        if whole >= 1:
+            col.update_one({"_id": oid(str(uid))}, {"$inc": {"token_frac": -whole}})
+            take = min(whole, balance(uid))
+            if take > 0:
+                adjust(uid, -take, reason, ref)
+            taken = take
+    try:
+        UsageEvent(user_id=str(uid), video_id=ref, kind=kind, provider=provider, units=float(units), ok=True, cost=float(amount), billed=member, t=now()).save()
+    except Exception:
+        pass
+    return taken
+
+
+def charge_action(uid, key: str, ref: Optional[str] = None) -> int:
+    """Charge a member the price of one small action (a scan, an Editor render, a research run). Never raises: a billing problem must not undo work."""
+    try:
+        kind, prov, reason, _name = ACTIONS[key]
+        return charge_small(uid, float(pricing().get(key) or 0), reason, kind, prov, 1.0, ref)
+    except Exception as e:
+        print(f"[tokens] could not charge {key}: {e}")
+        return 0
 
 
 def adhoc_shortfall(uid: str, events: List[Dict]) -> Optional[str]:

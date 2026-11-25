@@ -295,6 +295,10 @@ def start_render(uid, doc: Dict, spec: Dict, title: str, description: str = "") 
     title = " ".join((title or "").split())[:100] or (doc.get("title") or "My edit")
     if _active(uid, "render"):
         raise ValueError("You already have a video rendering. Wait for it to finish.")
+    from app.services import token_service as tokens
+    why = tokens.small_shortfall(uid, "editor_render")
+    if why:
+        raise ValueError(why)
     total = sum(b - a for a, b in spec["segments"])
 
     def work(report):
@@ -322,6 +326,7 @@ def start_render(uid, doc: Dict, spec: Dict, title: str, description: str = "") 
         vid = Video(user_id=str(uid), kind=kind, status="rendered", title=title, description=desc, tags=[], video_path=str(out),
                     thumbnail_path=str(thumb) if thumb.is_file() else "", audio_mode="original", clip_ids=[], game_name="Edited video",
                     credits=[credit] if credit else [], privacy_status="unlisted", upload_status="hold", edited=True, created_at=now()).save()
+        tokens.charge_action(uid, "editor_render", ref=str(vid.id))       # only a finished, saved video is charged
         from app.services import notification_service as notes
         notes.notify(uid, "editor", "Your edited video is ready", f"{title} was saved to your Videos and is waiting for your check.", "#/videos", "success")
         return {"video_id": str(vid.id), "kind": kind, "seconds": round(total, 1)}

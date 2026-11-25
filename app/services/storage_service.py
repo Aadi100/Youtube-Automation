@@ -47,12 +47,47 @@ def member_usage_mb(uid: str) -> float:
     return round(n / 1e6, 1)
 
 
+EXTRA_GB_MAX = 10          # the most a member may keep above the free part (when extra storage is paid for)
+
+
 def over_cap(uid: str) -> Optional[str]:
-    """None if the member may start a video, else the message to show them."""
+    """None if the member may start a video, else the message to show them. Above the free part a member may keep up to EXTRA_GB_MAX more,
+    paid for by the day (see bill_extra_storage), as long as they have tokens and the owner has put a price on it."""
     used, cap = member_usage_mb(uid), cap_mb()
-    if used >= cap:
-        return f"Your storage is full ({used:.0f} of {cap} MB). Delete old videos on the Videos page, then try again."
-    return None
+    if used < cap:
+        return None
+    try:
+        from app.services import token_service as tokens
+        if float(tokens.pricing().get("storage_extra_gb_month") or 0) > 0 and tokens._is_member(uid):
+            if used < cap + EXTRA_GB_MAX * 1000 and tokens.balance(uid) >= 1:
+                return None
+            if used < cap + EXTRA_GB_MAX * 1000:
+                return f"Your free storage is full ({used:.0f} of {cap} MB) and extra storage needs tokens. Delete old videos or ask the owner for more tokens."
+    except Exception:
+        pass
+    return f"Your storage is full ({used:.0f} of {cap} MB). Delete old videos on the Videos page, then try again."
+
+
+def bill_extra_storage() -> int:
+    """Once a day: every member who keeps more than the free storage pays a thirtieth of the monthly price for each extra GB
+    (fractions are collected until they make a whole token). Returns how many members were charged. Safe to call often: it runs once per UTC day."""
+    from app.models import System, User
+    from app.services import token_service as tokens
+    price = float(tokens.pricing().get("storage_extra_gb_month") or 0)
+    today = now().strftime("%Y-%m-%d")
+    if price <= 0 or (System.find_one(id="storage_billing") or {}).get("day") == today:
+        return 0
+    System.set_fields("storage_billing", {"day": today}, upsert=True)
+    n, cap = 0, cap_mb()
+    for u in User.objects(role__ne="owner"):
+        uid = str(u.id)
+        used = member_usage_mb(uid)
+        if used <= cap:
+            continue
+        extra_gb = (used - cap) / 1000.0
+        tokens.charge_small(uid, extra_gb * price / 30.0, "Extra storage", "storage", "disk", units=extra_gb)
+        n += 1
+    return n
 
 
 def disk() -> Dict:

@@ -100,6 +100,10 @@ def start_scan(uid, url: str, start=None, end=None, safety_on: bool = True) -> s
         raise ValueError("Choose a part at least a minute long.")
     if Scan.total(user_id=str(uid), status="running"):
         raise ValueError("A scan is already running. Wait for it to finish.")
+    from app.services import token_service as tokens
+    why = tokens.small_shortfall(uid, "finder_scan")
+    if why:
+        raise ValueError(why)
     _prune(uid)
     doc = Scan(user_id=str(uid), title="Scanning…", url=url, kind="vod", status="running", created_at=now(), pct=2, message="Starting…", candidates=[]).save()
     threading.Thread(target=_run, args=(str(uid), str(doc.id), url, a, b, safety_on, False), daemon=True).start()
@@ -114,6 +118,10 @@ def scan_more(uid, sid: str, safety_on: bool = True) -> str:
         raise ValueError("A scan is already running. Wait for it to finish.")
     if not d.get("more"):
         raise ValueError("There is nothing more to scan in this source.")
+    from app.services import token_service as tokens
+    why = tokens.small_shortfall(uid, "finder_scan")
+    if why:
+        raise ValueError(why)
     a = float(d.get("next_start") or 0)
     _set(sid, status="running", pct=2, message="Scanning the next part…")
     threading.Thread(target=_run, args=(str(uid), sid, d["url"], a, None, safety_on, True), daemon=True).start()
@@ -226,6 +234,8 @@ def _scan(uid: str, sid: str, url: str, a: Optional[float], b: Optional[float], 
             allc = old + cands
             _set(sid, candidates=allc, pct=55 + int(40 * done / len(cands)), message=f"Previews ready: {done} of {len(cands)}")
     ok_n = sum(1 for c in cands if c.get("ready") and not c.get("flagged"))
+    from app.services import token_service as tokens
+    tokens.charge_action(uid, "finder_scan", ref=sid)          # a scan that found moments is paid for; one that found nothing is free
     _set(sid, status="done", pct=100, message=f"{ok_n} moment{'s' if ok_n != 1 else ''} ready to choose.", candidates=old + cands)
     notes.notify(uid, "editor", "Your clip finder is done", f"{ok_n} moments found in {info['title'][:60]}. Open the Editor to choose.", "#/editor", "success", key=f"scan-{sid}")
 

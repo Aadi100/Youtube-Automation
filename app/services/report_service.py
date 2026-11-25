@@ -17,6 +17,11 @@ SERVICES = {
     ("image", "gemini"): ("Images (Gemini)", "images"), ("image", "free"): ("Images (free service)", "images"),
     ("tts", "edge-tts"): ("Narrator voice", "characters"), ("whisper", "whisper"): ("Captions (speech to text)", "minutes"),
     ("safety_local", "nudenet"): ("Local safety check", "clips"), ("upload", "youtube"): ("Uploads to YouTube", "uploads"),
+    ("search", ""): ("Finding the clip", "clips"), ("search", "studio"): ("Finding the clip", "clips"),
+    ("render", "short"): ("Rendering a Short", "videos"), ("render", "compilation"): ("Rendering a compilation", "videos"),
+    ("source", "youtube"): ("Clip sourcing (YouTube extra)", "clips"),
+    ("scan", "finder"): ("Clip Finder scans", "scans"), ("edit", "editor"): ("Editor renders", "renders"), ("research", "run"): ("Research runs", "runs"),
+    ("storage", "disk"): ("Extra storage", "GB-days"),
 }
 
 
