@@ -121,7 +121,8 @@ def review_with_gemini(video: Path, transcript: str = "") -> Tuple[Optional[bool
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         return None, "no Gemini key"
-    models = [m for m in (os.environ.get("GEMINI_MODEL") or "gemini-flash-latest", "gemini-flash-lite-latest") if m]
+    from app.engine import ai_routes
+    models = ai_routes.gemini_models("safety") or [m for m in (os.environ.get("GEMINI_MODEL") or "gemini-flash-latest", "gemini-flash-lite-latest") if m]
     from app.engine import ai_saver
     ckey = None
     try:                                              # the same clip file (even from another member) is reviewed once

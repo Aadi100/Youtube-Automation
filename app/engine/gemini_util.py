@@ -20,7 +20,16 @@ def last_usage():
 BACKUPS = ["gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-3.5-flash-lite"]
 
 
-def models() -> List[str]:
+def models(task: str = "") -> List[str]:
+    """The Gemini models to try for a job: the ones the owner chose in Settings -> AI models (primary, then backup), else the built-in list."""
+    if task:
+        try:
+            from app.engine import ai_routes
+            chosen = ai_routes.gemini_models(task)
+            if chosen:
+                return chosen
+        except Exception:
+            pass
     first = os.environ.get("GEMINI_MODEL") or "gemini-flash-latest"
     return list(dict.fromkeys([first] + BACKUPS))
 
@@ -32,7 +41,7 @@ def usage_of(data: dict):
     return tin, max(int(m.get("totalTokenCount") or 0) - tin, int(m.get("candidatesTokenCount") or 0))
 
 
-def generate(prompt: str, timeout: int = 45, json_mode: bool = False) -> str:
+def generate(prompt: str, timeout: int = 45, json_mode: bool = False, model: str = "") -> str:
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
         raise RuntimeError("no Gemini key")
@@ -42,7 +51,7 @@ def generate(prompt: str, timeout: int = 45, json_mode: bool = False) -> str:
     if (os.environ.get("AI_GEMINI_THINKING") or "off").strip().lower() in ("off", "0", "no"):    # thinking tokens are billed but not needed to write a title
         body.setdefault("generationConfig", {})["thinkingConfig"] = {"thinkingBudget": 0}
     last = ""
-    for m in models():
+    for m in ([model] if model else models()):          # a model the owner chose for this job is the only one tried (the backup is the next provider or model in Settings -> AI models)
         for attempt in range(2):
             try:
                 r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent",

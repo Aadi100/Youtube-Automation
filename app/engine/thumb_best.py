@@ -116,7 +116,7 @@ def _gemini_json(parts: List[Dict], task: str, timeout: int = 90) -> Dict:
     body = {"contents": [{"parts": parts}], "generationConfig": {"responseMimeType": "application/json", "temperature": 0.7}}
     switch_off = (os.environ.get("AI_GEMINI_THINKING") or "off").strip().lower() in ("off", "0", "no")
     last = "no model answered"
-    for m in gemini_util.models():
+    for m in gemini_util.models(task):
         r = None
         # the newest models refuse "thinking budget 0" (HTTP 400, invalid argument): they are asked again the normal way. A busy model (503) gets one more try.
         for attempt in ((True, False) if switch_off else (False,)):
@@ -271,28 +271,49 @@ def prompt_for(ctx: Dict, scene: str, headline: str, mode: str, with_text: bool,
     from app.engine import thumb_prompt
     c = {**(ctx or {}), "scene": scene}
     written = thumb_prompt.write(c, mode, headline, with_text, "best", analysis)
-    return written or build_prompt(c.get("game") or "", scene, headline, mode, with_text)
+    return written or build_prompt(c.get("game") or "", scene, headline, mode, with_text, c.get("leave_corner") or "")
 
 
-def build_prompt(game: str, scene: str, headline: str, mode: str, with_text: bool) -> str:
+def build_prompt(game: str, scene: str, headline: str, mode: str, with_text: bool, leave_corner: str = "") -> str:
     """The built-in template (the fallback)."""
     game = re.sub(r"[^\w\s\-:&'.]", "", game or "video game")[:60]
     scene = re.sub(r"[^\w\s,.\-']", "", scene or "")[:260].strip()
-    shape = ("tall vertical composition, keep the subject and every word in the middle column" if mode == "9:16"
+    shape = ("square composition, the subject centred and every word fully inside the picture with a clear margin on all four sides (it is placed in a tall frame)" if mode == "9:16"
              else "wide landscape composition, keep the subject and every word in the middle band")
     base = (f"Dramatic cinematic YouTube gaming thumbnail in the style of the video game {game}: {scene}. {shape}. "
             "Bold teal-and-orange colour grade with neon pink and cyan accents, extremely vivid saturated colours, high contrast, glowing epic lighting, strong depth, high detail.")
+    if leave_corner:
+        base += f" Keep the lower {leave_corner} corner of the picture calm and empty (a face will be placed there) and put any headline in the top half."
     if with_text and headline:
-        return (base + f' Huge, thick, perfectly spelled headline text that reads exactly "{headline}", white letters with a heavy black outline and a soft glow, '
+        return (base + f' Huge, thick, perfectly spelled headline text that reads exactly "{headline}", written once only, white letters with a heavy black outline and a soft glow, '
                        "easy to read at a small size. No other text, no watermark, no logo, no real people.")
-    return base + " No text, no letters, no logo, no watermark, no real people."
+    return base + " No text, no letters, no words, no numbers, no captions, no speech bubbles, no logo, no watermark, no real people."
 
 
 def _fit(raw: bytes, mode: str, out: Path) -> Path:
-    """Whatever size FLUX answered with, cover-crop it to the thumbnail size (1280x720 or 1080x1920) and save it as a JPEG."""
-    from PIL import Image
+    """Put FLUX's picture into the thumbnail size (1280x720, or 1080x1920 for a Short) and save it as a JPEG.
+    FLUX on Cloudflare answers with a (nearly) square picture. For a wide thumbnail it is cut to the middle band. A tall thumbnail cannot be cut from a square
+    without losing the sides of the headline (the letters at the edges disappear), so the whole picture is kept at full width and the rest of the tall frame is
+    filled with a blurred, darkened copy of it."""
+    from PIL import Image, ImageEnhance, ImageFilter
     im = Image.open(io.BytesIO(raw)).convert("RGB")
     W, H = (1280, 720) if mode != "9:16" else (1080, 1920)
+    if mode == "9:16" and im.width / im.height > (W / H) * 1.5:
+        s = max(W / im.width, H / im.height)
+        bg = im.resize((max(W, round(im.width * s)), max(H, round(im.height * s))), Image.LANCZOS)
+        l, t = (bg.width - W) // 2, (bg.height - H) // 2
+        bg = ImageEnhance.Brightness(bg.crop((l, t, l + W, t + H)).filter(ImageFilter.GaussianBlur(38))).enhance(0.55)
+        fh = round(im.height * W / im.width)
+        fg = im.resize((W, fh), Image.LANCZOS)
+        y = (H - fh) // 2
+        fade = 36                                  # the picture melts into the blurred frame above and below instead of ending on a hard line
+        mask = Image.new("L", (W, fh), 255)
+        for i in range(fade):
+            v = int(255 * i / fade)
+            mask.paste(v, (0, i, W, i + 1)); mask.paste(v, (0, fh - 1 - i, W, fh - i))
+        bg.paste(fg, (0, y), mask)
+        bg.save(out, "JPEG", quality=94)
+        return out
     s = max(W / im.width, H / im.height)
     im = im.resize((max(W, round(im.width * s)), max(H, round(im.height * s))), Image.LANCZOS)
     l, t = (im.width - W) // 2, (im.height - H) // 2

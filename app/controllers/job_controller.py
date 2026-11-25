@@ -20,7 +20,8 @@ def h_diy(h):
     from app.engine import clipcfg
     from app.services import thumbnail_service
     h.send_json(200, {**diy_service.options_for(h.is_owner()), "want_kinds": clipcfg.want_options(), "pictures": thumbnail_service.get_brand(h.uid)["pictures"], "tiers": thumbnail_service.tier_options(h.is_owner()),
-                      "tier": thumbnail_service.get_brand(h.uid)["tier"]})
+                      "tier": thumbnail_service.get_brand(h.uid)["tier"],
+                      "trending": {"allowed": diy_service.trending_allowed(h.is_owner()), "default": clipcfg.trending_on(h.uid)}})
 
 
 def h_creator_check(h):
@@ -118,6 +119,10 @@ def _check_params(d: dict, uid=None, owner: bool = False) -> tuple:
         w = clipcfg.clean_want(d["want"])
         if w:
             params["want"] = w
+    if d.get("trending"):                                 # Trending mode: only when the owner allowed it for this member
+        if not diy_service.trending_allowed(owner):
+            raise ValueError("Trending mode is not switched on for you. Ask the owner.")
+        params["trending"] = True
     if d.get("thumb_tier"):                               # the thumbnail level for this video: better | best
         from app.services import thumbnail_service
         thumbnail_service.check_tier(str(d["thumb_tier"]), owner)

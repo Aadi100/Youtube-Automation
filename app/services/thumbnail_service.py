@@ -40,7 +40,7 @@ def get_brand(uid) -> Dict:
     return {"style": b.get("style") if b.get("style") in thumb_styles.STYLE_IDS else "auto",
             "text": thumb_styles.valid_color(b.get("text"), thumb_styles.DEFAULT_TEXT), "accent": thumb_styles.valid_color(b.get("accent"), thumb_styles.DEFAULT_ACCENT),
             "font": b.get("font") if b.get("font") in thumb_styles.FONTS else thumb_styles.DEFAULT_FONT, "has_logo": tg.logo_path(str(uid)) is not None,
-            "pictures": 3 if int(b.get("pictures") or 1) >= 3 else 1, "tier": tg.norm_tier(b.get("tier"))}
+            "pictures": 3 if int(b.get("pictures") or 1) >= 3 else 1, "tier": tg.norm_tier(b.get("tier")), "face": "off" if b.get("face") == "off" else "on"}
 
 
 GEMINI_PLAN_TOKENS = 2200      # about what one Best plan uses (3 small frames, the facts, a short JSON answer) - used for the price estimate only
@@ -96,7 +96,8 @@ def save_brand(uid, d: Dict, is_owner: bool = True) -> Dict:
     if tier != get_brand(uid)["tier"]:
         check_tier(tier, is_owner)                 # choosing a level you may not use is refused (keeping the one you already had is fine)
     brand = {"style": style, "text": thumb_styles.valid_color(d.get("text"), thumb_styles.DEFAULT_TEXT),
-             "accent": thumb_styles.valid_color(d.get("accent"), thumb_styles.DEFAULT_ACCENT), "font": font, "pictures": 3 if str(d.get("pictures") or "1") == "3" else 1, "tier": tier}
+             "accent": thumb_styles.valid_color(d.get("accent"), thumb_styles.DEFAULT_ACCENT), "font": font, "pictures": 3 if str(d.get("pictures") or "1") == "3" else 1, "tier": tier,
+             "face": "off" if str(d.get("face") or get_brand(uid)["face"]) == "off" else "on"}
     UserPrefs.set_fields(str(uid), brand=brand, upsert=True)
     return get_brand(uid)
 

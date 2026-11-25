@@ -19,7 +19,7 @@ import requests
 from app.engine import ai_saver, gemini_util
 
 ORDER = {"commentary": ["deepseek", "gemini"], "moments": ["deepseek", "gemini"],
-         "metadata": ["deepseek", "gemini"], "scoring": ["gemini", "deepseek"], "thumb-prompt": ["deepseek", "gemini"], "thumb-plan-text": ["deepseek", "gemini"]}
+         "metadata": ["deepseek", "gemini"], "scoring": ["gemini", "deepseek"], "thumb-prompt": ["deepseek", "gemini"], "thumb-plan-text": ["deepseek", "gemini"], "trending-theme": ["deepseek", "gemini"]}
 
 
 def _log(msg: str) -> None:
@@ -100,13 +100,18 @@ def generate(task: str, prompt: str, json_mode: bool = False, timeout: int = 60)
         ai_saver.saved(task, "budget", max(200, len(prompt) // 4))
         raise RuntimeError("the AI token budget for this video is used up")
     errors = []
-    for p in order_for(task):
+    from app.engine import ai_routes
+    chain = ai_routes.text_chain(task)                  # what the owner chose for this job (Settings -> AI models), else the built-in order
+    if chain is None:
+        chain = [{"provider": p, "model": ""} for p in order_for(task)]
+    for step in chain:
+        p, chosen = step["provider"], step["model"]
         try:
             if p == "claude":
                 from app.engine import claude_util
                 raw = claude_util.ask(task, "You write YouTube titles and descriptions." + (" Reply with one JSON object and nothing else." if json_mode else ""),
                                       [{"type": "text", "text": prompt}], max_tokens=ai_saver.max_tokens(task) or 1800, timeout=max(timeout, 60),
-                                      model_id=claude_util.title_model() if task == "metadata" else "", temperature=0.8 if task == "metadata" else 0.4)
+                                      model_id=chosen or (claude_util.title_model() if task == "metadata" else ""), temperature=0.8 if task == "metadata" else 0.4)
                 if json_mode:
                     raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
                     a, b = raw.find("{"), raw.rfind("}")
@@ -115,11 +120,11 @@ def generate(task: str, prompt: str, json_mode: bool = False, timeout: int = 60)
                 return raw        # claude_util.ask has already recorded the usage and the AI budget
             if p == "deepseek":
                 _deepseek_usage.usage = (0, 0)
-                text = _deepseek(prompt, timeout, json_mode, ai_saver.max_tokens(task) or 0)
+                text = _deepseek(prompt, timeout, json_mode, ai_saver.max_tokens(task) or 0, chosen)
                 tin, tout = getattr(_deepseek_usage, "usage", (0, 0))
             else:
                 gemini_util._last.usage = (0, 0)
-                text = gemini_util.generate(prompt, timeout=timeout, json_mode=json_mode)
+                text = gemini_util.generate(prompt, timeout=timeout, json_mode=json_mode, model=chosen)
                 tin, tout = gemini_util.last_usage()
             if not (tin or tout):     # the service did not say: estimate from the size of the text (about 4 characters per token)
                 tin, tout = len(prompt) // 4, len(text) // 4
@@ -127,6 +132,6 @@ def generate(task: str, prompt: str, json_mode: bool = False, timeout: int = 60)
             _log(f"{task}: answered by {p}")
             return text
         except Exception as e:
-            errors.append(f"{p}: {str(e)[:90]}")
-            _log(f"{task}: {p} unavailable ({str(e)[:80]})")
-    raise RuntimeError("; ".join(errors) or "no AI provider configured")
+            errors.append(f"{p}{' ' + chosen if chosen else ''}: {str(e)[:90]}")
+            _log(f"{task}: {p}{' ' + chosen if chosen else ''} unavailable ({str(e)[:80]})")
+    raise RuntimeError("; ".join(errors) or "no AI provider configured for this job")

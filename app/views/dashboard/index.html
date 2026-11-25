@@ -1239,7 +1239,10 @@ async function create() {
     <section class="card crt-sec"><div class="crt-h"><span class="crt-n">2</span><div><h2>Where should the clips come from?</h2><p>Search by game, or take clips from one creator.</p></div>
         <div class="seg crt-seg" id="srcmode" style="margin-left:auto"><button class="on" data-m="game" type="button">By game</button><button data-m="creator" type="button">One creator</button></div></div>
       <div id="pn_game"><label class="crt-l">Game</label><div class="pkchips" id="pk_game"></div>
-        <label class="crt-l" id="l_source">Look for clips on</label><div class="pkgrid" id="pk_source"></div></div>
+        <label class="crt-l" id="l_source">Look for clips on</label><div class="pkgrid" id="pk_source"></div>
+        <div id="trend_box" hidden><label class="crt-l">Trending mode</label>
+          <label class="row" style="gap:12px;align-items:center;cursor:pointer"><span class="switch"><input type="checkbox" id="d_trend"><span></span></span><b>Look at what is trending for this game first</b><span class="muted" id="trend_price"></span></label>
+          <div class="help" style="margin-top:6px">The studio looks back two days, ranks Twitch and YouTube clips and videos by how fast they are growing (views per hour) and takes the best live stream too, then clips from the fastest risers. An AI can also read what is hot for the game. The fee is charged only when the video is made.</div></div></div>
       <div id="pn_creator" hidden><div id="creatorbox"><label class="crt-l" style="margin-top:0">Creator</label>
         <div class="edsearch"><div class="pkmini" id="cr_tiles"></div><input id="cr_name" class="grow" autocomplete="off" placeholder="Name, or a link to their channel"><button id="cr_check" type="button" class="edgo" title="Check who this is">→</button></div>
         <div class="row" style="margin-top:10px"><button id="cr_save" type="button">Save to my list</button><span class="muted" id="cr_info" style="flex:1;min-width:200px">Only this creator's own recent clips or videos are used. The creator is credited, the clip is yours alone, and it still goes through the safety check.</span></div>
@@ -1359,8 +1362,9 @@ async function create() {
           const pics = ($("#d_pics").value || String(d.pictures || 1)) === "3" ? 3 : 1, first = lv === "better" || !row ? d.estimate.image : row.price;
           t += first + (pics - 1) * (lv === "better" || !med ? d.estimate.image : med.price);
         }
-        est = ` Estimated for this Short: about ${Math.round(t * 10) / 10} tokens + ${d.estimate.upload} for the upload.`;
-      } else est = " A compilation costs roughly 8 to 10 times a Short.";
+        const tf = ($("#d_trend") && $("#d_trend").checked && !$("#trend_box").hidden) ? d.estimate.trend.short : 0;
+        est = ` Estimated for this Short: about ${Math.round(t * 10) / 10} tokens + ${d.estimate.upload} for the upload${tf ? ` + ${tf} for Trending mode` : ""}.`;
+      } else est = " A compilation costs roughly 8 to 10 times a Short" + (($("#d_trend") && $("#d_trend").checked && !$("#trend_box").hidden) ? ` + ${d.estimate.trend.compilation} for Trending mode.` : ".");
     } catch (e) {}
     $("#costhint").textContent = TOK.owner ? "Free for the owner (the usage is still recorded)." :
       `You pay only for what the video really uses (AI, images …).${est} ${n} tokens are reserved now and the unused part comes back; a failed video costs nothing. You have ${TOK.balance}.`;
@@ -1378,6 +1382,11 @@ async function create() {
     ["diy_ai", "diy_meta", "diy_thumb", "diy_comm", "diy_src"].forEach(id => { if ($("#" + id) && $("#" + id).dataset.off) $("#" + id).remove(); });
     if ($("#diybox")) $("#diybox").hidden = !shown.length;
     if ($("#srcmode")) $("#srcmode").hidden = !(all || f.pick_creator);
+    if ($("#trend_box")) {                                // Trending mode: only where the owner allowed it
+      const tr = d.trending || {}; $("#trend_box").hidden = !tr.allowed; $("#d_trend").checked = !!(tr.allowed && tr.default);
+      $("#trend_price").textContent = tr.allowed ? `+${d.estimate.trend.short} tokens for a Short, +${d.estimate.trend.compilation} for a compilation` : "";
+      $("#d_trend").addEventListener("change", () => showCost());
+    }
     ["ai_text", "d_title", "d_thumb", "d_pics", "d_tier", "d_comm", "d_src", "audio", "source"].forEach(id => { if ($("#" + id)) $("#" + id).addEventListener("change", () => { diyShow(); showCost(); }); });
     const tierSel = $("#d_tier");
     if (tierSel && d.tiers) {
@@ -1405,6 +1414,7 @@ async function create() {
     if ($("#d_thumb") && $("#d_thumb").value === "frame") diy.thumbnail = "frame";
     if ($("#d_pics") && $("#d_pics").value && $("#d_thumb").value !== "frame") body.thumb_pictures = $("#d_pics").value;
     if ($("#d_tier") && $("#d_tier").value && $("#d_thumb").value !== "frame") body.thumb_tier = $("#d_tier").value;
+    if ($("#d_trend") && $("#d_trend").checked && !$("#trend_box").hidden && !$("#pn_game").hidden) body.trending = true;
     if (kind === "auto-short") {
       if ($("#d_comm") && $("#d_comm").value === "mine") { if (!$("#own_comm").value.trim()) throw new Error("Write your commentary, or choose 'AI writes it'."); diy.own_commentary = $("#own_comm").value; }
       if ($("#d_src") && $("#d_src").value === "mine") { if (!$("#own_url").value.trim()) throw new Error("Paste the YouTube link, or choose 'Find it for me'."); Object.assign(diy, {own_url: $("#own_url").value.trim(), own_start: +$("#own_start").value, own_end: +$("#own_end").value}); }
@@ -1632,7 +1642,8 @@ async function clips() {
 
 /* ------------------------------------------------------------ schedule */
 async function schedule() {
-  $("#main").innerHTML = `<h1>Schedule</h1><div id="schov"></div><div id="scheditor" style="margin-top:18px"></div>`;
+  $("#main").innerHTML = `<h1>Schedule</h1><div id="schov"></div><div id="scheditor" style="margin-top:18px"></div><div id="trendnote" class="muted" style="margin-top:14px"></div>`;
+  api("/api/trending").then(t => { if ($("#trendnote")) $("#trendnote").innerHTML = t.allowed ? `Trending mode for scheduled videos: <b>${t.on ? "on" : "off"}</b> (+${t.price.short} tokens for a Short, +${t.price.compilation} for a compilation). Change it in <a href="#/settings">Settings → Trending mode</a>.` : ""; }).catch(() => {});
   let tz = "UTC", prevRunning = false;
   const at = (iso, long) => iso ? new Date(iso).toLocaleString("en-GB", {timeZone: tz, weekday: "short", day: "numeric", month: "short",
     hour: "2-digit", minute: "2-digit"}) : "-";
@@ -2674,7 +2685,7 @@ async function users() {
       ["AI text: tokens charged per 1,000 AI tokens (the AI service reports the real number)", [["gemini_per_1k", "Gemini (text and safety review)"], ["deepseek_per_1k", "DeepSeek"], ["claude_per_1k", "Claude (titles)"]]],
       ["Thumbnail pictures: per picture", [["image_free", "Better level (free image service)"], ["image_flux", "Best level (FLUX, finished thumbnail; Gemini planning is charged on top)"], ["image_gemini", "Gemini picture (only if chosen as the Better image service)"]]],
       ["Parts that run on your own server (0 = free)", [["tts_per_1k_chars", "Voice: per 1,000 characters"], ["whisper_per_min", "Captions: per minute of speech"], ["safety_local_per_clip", "Local safety check: per clip"]]],
-      ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["server_per_video", "Server usage (every video made)"]]],
+      ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["server_per_video", "Server usage (every video made)"], ["trend_short", "Trending mode: Short"], ["trend_compilation", "Trending mode: compilation"]]],
     ["Searching for clips: every clip found", [["youtube_source", "YouTube clip"], ["twitch_source", "Twitch clip"], ["kick_source", "Kick clip"]]],
       ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["email_send", "Each email sent to a member"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
       ["Uploading to YouTube: per upload", [["upload_short", "Short"], ["upload_compilation", "Compilation"]]],
@@ -3106,6 +3117,8 @@ async function settings() {
      desc: "Choose which kinds of moments the clipper looks for, add your own ideas, and say what it must never clip. The AI is given exactly these instructions."},
     {id: "audme", icon: "globe", title: "Creators & languages",
      desc: "Choose which creators' clips you want: the country they live in and the language of their streams. Every account sets its own, and it only applies to your own videos."},
+    {id: "trend", icon: "clips", title: "Trending mode",
+     desc: "Make your videos from what is trending right now: the studio looks at the game first, ranks clips and videos by how fast they are growing and clips from the fastest risers. It costs a little extra per video. Your choice is the default on the Create page and is used for your scheduled videos."},
     {id: "saver", icon: "usage", title: "AI saver",
      desc: "Make the AI cost fewer tokens for your own videos: short answers, a limit for each video, pictures read at low resolution, and a memory so the same clip is never analysed twice. It is off until you switch it on. Every account chooses for itself."},
     {id: "src", icon: "clips", title: "Clip sources",
@@ -3116,10 +3129,12 @@ async function settings() {
      status: ["SMTP_HOST"]},
     {id: "tpl", icon: "mail", title: "Email templates",
      desc: "Change how the emails members receive look and read: the subject, heading, message, button and footer. Use one template for all emails, or give a kind of email its own."},
+    {id: "airoute", icon: "key", title: "AI models",
+     desc: "Choose which AI does each job and which one takes over if it fails: the provider and the model for every job, from titles to the safety review."},
     {id: "music", icon: "music", title: "Music",
      desc: "Royalty-free tracks used under the AI commentary. Only use tracks you have the licence for (for example the YouTube Audio Library)."},
   ];
-  const TABGROUP = {prefs: 0, yt: 0, src: 0, audme: 0, clip: 0, saver: 0, conn: 1, ytx: 1, aud: 1, pricing: 1, mail: 2, tpl: 2, music: 2};
+  const TABGROUP = {prefs: 0, yt: 0, src: 0, audme: 0, clip: 0, saver: 0, trend: 0, conn: 1, airoute: 1, ytx: 1, aud: 1, pricing: 1, mail: 2, tpl: 2, music: 2};
   const TABHEAD = ["My account", "The studio (owner)", "Email and files (owner)"];
   const GROUPS = {   // [title, hint, [keys], opened?]
     conn: [["Find clips", "Twitch and YouTube. Needed for clips and live streams.", ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET", "YOUTUBE_API_KEY"], true],
@@ -3130,7 +3145,7 @@ async function settings() {
            ["Advanced: model names", "Leave these alone unless a model is retired.", ["GEMINI_MODEL", "DEEPSEEK_MODEL", "ANTHROPIC_MODEL", "ANTHROPIC_RESEARCH_MODEL", "ANTHROPIC_TITLE_MODEL", "LLM_SPLIT"], false]],
     aud: [["Who the clips are from", "What members get until they choose their own.", ["CLIP_COUNTRIES", "CLIP_LANGUAGES"], true],
           ["Voice and sound", "The narrator, the creator's own audio, and listening for loud moments.", ["DEFAULT_AUDIO_MODE", "TTS_VOICE", "SOUND_PEAKS"], true],
-          ["Thumbnails", "How the artwork is made.", ["AI_THUMBNAILS", "THUMB_PROMPT_AI", "AI_IMAGE_PROVIDER", "THUMB_TEXT", "THUMB_REVIEW"], true],
+          ["Thumbnails", "How the artwork is made.", ["AI_THUMBNAILS", "THUMB_PROMPT_AI", "THUMB_FACE", "AI_IMAGE_PROVIDER", "THUMB_TEXT", "THUMB_REVIEW"], true],
           ["Safety", "The safety check always runs. These only change how it looks.", ["SAFE_MODE", "SAFETY_AI_FRAMES", "SAFETY_AI_WIDTH", "SAFETY_FINAL_AI"], false],
           ["Live streams", "How live streams are watched.", ["LIVE_WATCH_MINUTES", "LIVE_STREAMS"], false]],
     mail: [["Mail server", "", ["SMTP_HOST", "SMTP_PORT", "SMTP_SECURITY", "SMTP_USER", "SMTP_PASSWORD"], true],
@@ -3145,7 +3160,7 @@ async function settings() {
       return `<details class="fgrp" ${open ? "open" : ""}><summary>${t}${shown > 1 || ks.some(k => st[k].secret) ? `<span class="fgn">${set} of ${shown} filled in</span>` : ""}</summary>${hint ? `<div class="help fgd">${hint}</div>` : ""}<div class="fields">${ks.map(k => field(k, st[k])).join("")}</div>${t === "Best thumbnails" ? `<div class="row" style="padding:0 16px 16px;gap:12px;align-items:center;flex-wrap:wrap"><button type="button" id="bt_test" class="pri">Test Best thumbnails now</button><span class="muted" id="bt_res">Save the keys first: the test uses what is saved.</span></div>` : ""}</details>`;
     }).join("");
   };
-  if (!isOwner) SECTIONS.splice(0, SECTIONS.length, ...SECTIONS.filter(x => ["prefs", "yt", "clip", "audme", "src", "saver"].includes(x.id)));   // members never see server-wide settings
+  if (!isOwner) SECTIONS.splice(0, SECTIONS.length, ...SECTIONS.filter(x => ["prefs", "yt", "clip", "audme", "src", "saver", "trend"].includes(x.id)));   // members never see server-wide settings
   const META = {
     TWITCH_CLIENT_ID: ["Twitch client ID", "Free at dev.twitch.tv/console. Needed for Twitch clips and live streams."],
     TWITCH_CLIENT_SECRET: ["Twitch client secret", ""],
@@ -3179,6 +3194,7 @@ async function settings() {
     DEFAULT_AUDIO_MODE: ["Original audio", "Applies to every automatic and manual video unless you choose otherwise on the Create page."],
     TTS_VOICE: ["Narrator voice", "Who reads the AI commentary. You can also choose one per video on the Create page."],
     AI_THUMBNAILS: ["AI thumbnails (on / off)", "Creates artwork for each thumbnail. The picture prompt is a description of the scene (game, action, mood): it never contains names, links or your title as written."],
+    THUMB_FACE: ["Streamer's face from the webcam", "When a video has a face camera (a face that stays in one place), the sharpest and most expressive frame of that face is cut out and placed on the thumbnail in a corner free of the headline. No webcam, no face: nothing changes. Members can also switch it off for themselves. It uses OpenCV on your server: no AI service, no tokens."],
     THUMB_PROMPT_AI: ["Write a new picture prompt for every thumbnail", "On: an AI (DeepSeek first, Gemini as backup) reads the game, the kind of video and what happens in the clip and writes a prompt made for this scene, for both Better and Best. Off: one fixed template with the game name (saves a few AI tokens)."],
     SAFETY_AI_FRAMES: ["Safety review: frames per clip", "How many frames Gemini looks at per clip (3-12). 6 is the default; more frames catch more but cost more tokens."],
     SAFETY_AI_WIDTH: ["Safety review: frame width (px)", "Size of each frame sent to Gemini (256-768). 384 is the default; bigger frames cost more tokens."],
@@ -3201,7 +3217,7 @@ async function settings() {
   const VOICE_OPTS = [["random", "Random: a different narrator for each video"]].concat(voices.map(v => [v.id, `${v.name} · ${v.locale.replace("en-", "")} · ${v.gender.toLowerCase()}`]));
   let cmods = []; if (isOwner) { try { cmods = (await api("/api/claude/models")).models; } catch (e) {} }
   const CM = cmods.map(m => [m.id, m.name === m.id ? m.id : `${m.name} (${m.id})`]);
-  const SELECTS = {TITLE_AI: [["auto", "Auto (the strongest writer you have a key for)"], ["claude", "Claude"], ["gemini", "Gemini"], ["deepseek", "DeepSeek"]], ANTHROPIC_TITLE_MODEL: [["", "Same as the Claude model above"]].concat(CM), THUMB_PROMPT_AI: [["on", "On (a new prompt for each thumbnail)"], ["off", "Off (the fixed template)"]], THUMB_TEXT: [["flux", "FLUX writes the headline in the picture"], ["code", "The studio writes the headline on top"]], THUMB_REVIEW: [["off", "Off"], ["on", "On (Gemini checks each Best thumbnail once)"]], SOUND_PEAKS: [["on", "On (listen to the video)"], ["off", "Off (captions and replays only)"]], RESEARCH_PROVIDER: [["claude", "Claude (web search)"], ["gemini", "Gemini (Google Search)"], ["deepseek", "DeepSeek (needs a free Tavily or Brave search key)"]], ANTHROPIC_MODEL: [["", "Default (claude-sonnet-5-5)"]].concat(CM), ANTHROPIC_RESEARCH_MODEL: [["", "Same as the Claude model above"]].concat(CM), LLM_SPLIT: [["balanced", "Balanced (recommended)"], ["deepseek", "DeepSeek first for everything"], ["gemini", "Gemini first for everything"]], TTS_VOICE: VOICE_OPTS, SMTP_SECURITY: SECURITY, DEFAULT_AUDIO_MODE: AUDIO_OPTS, SAFE_MODE: [["on", "On (recommended)"], ["off", "Off"]], AI_THUMBNAILS: [["on", "On"], ["off", "Off"]], SAFETY_FINAL_AI: [["off", "Off (cheaper, recommended)"], ["on", "On (Gemini reviews it twice)"]], AI_IMAGE_PROVIDER: [["free", "Free service (no key)"], ["gemini", "Google Gemini (needs billing)"]]};
+  const SELECTS = {TITLE_AI: [["auto", "Auto (the strongest writer you have a key for)"], ["claude", "Claude"], ["gemini", "Gemini"], ["deepseek", "DeepSeek"]], ANTHROPIC_TITLE_MODEL: [["", "Same as the Claude model above"]].concat(CM), THUMB_PROMPT_AI: [["on", "On (a new prompt for each thumbnail)"], ["off", "Off (the fixed template)"]], THUMB_FACE: [["on", "On (use the webcam face when the video has one)"], ["off", "Off (never)"]], THUMB_TEXT: [["flux", "FLUX writes the headline in the picture"], ["code", "The studio writes the headline on top"]], THUMB_REVIEW: [["off", "Off"], ["on", "On (Gemini checks each Best thumbnail once)"]], SOUND_PEAKS: [["on", "On (listen to the video)"], ["off", "Off (captions and replays only)"]], RESEARCH_PROVIDER: [["claude", "Claude (web search)"], ["gemini", "Gemini (Google Search)"], ["deepseek", "DeepSeek (needs a free Tavily or Brave search key)"]], ANTHROPIC_MODEL: [["", "Default (claude-sonnet-5-5)"]].concat(CM), ANTHROPIC_RESEARCH_MODEL: [["", "Same as the Claude model above"]].concat(CM), LLM_SPLIT: [["balanced", "Balanced (recommended)"], ["deepseek", "DeepSeek first for everything"], ["gemini", "Gemini first for everything"]], TTS_VOICE: VOICE_OPTS, SMTP_SECURITY: SECURITY, DEFAULT_AUDIO_MODE: AUDIO_OPTS, SAFE_MODE: [["on", "On (recommended)"], ["off", "Off"]], AI_THUMBNAILS: [["on", "On"], ["off", "Off"]], SAFETY_FINAL_AI: [["off", "Off (cheaper, recommended)"], ["on", "On (Gemini reviews it twice)"]], AI_IMAGE_PROVIDER: [["free", "Free service (no key)"], ["gemini", "Google Gemini (needs billing)"]]};
   const field = (k, v) => {
     const [label, help] = META[k] || [k, ""];
     if (SELECTS[k] && v.value && !SELECTS[k].some(o => o[0] === v.value)) SELECTS[k].push([v.value, v.value]);
@@ -3238,7 +3254,7 @@ async function settings() {
     paintTabs(s);
     $("#spanes").innerHTML = SECTIONS.map(sec => `<div class="card spane" data-p="${sec.id}" ${state.tab === sec.id ? "" : "hidden"}>
       <h2>${svg(sec.icon).replace("<svg", '<svg width="18" height="18" style="stroke:currentColor;fill:none;stroke-width:1.8"')}${sec.title}</h2><p class="secdesc">${sec.desc}</p>
-      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "saver" ? `<div id="savercfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `${GROUPS[sec.id] || sec.id === "conn" ? groupedFields(sec, s) : `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>`}
+      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "saver" ? `<div id="savercfg" class="muted">Loading…</div>` : sec.id === "trend" ? `<div id="trendcfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "airoute" ? `<div id="airoutecfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `${GROUPS[sec.id] || sec.id === "conn" ? groupedFields(sec, s) : `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>`}
         <div class="savebar"><button class="pri" data-save>Save changes</button>${sec.id === "mail" ? `<button id="mt">Send test email</button><span class="muted" id="mres"></span>` : ""}
         <span class="muted">Stored in the local .env file.</span></div>`
       : `<div class="row"><input type="file" id="mf" accept=".mp3,.wav,.m4a,.ogg,.flac" class="grow"><button id="mu" class="pri">Upload track</button></div><div id="mlist" style="margin-top:14px"></div>`}
@@ -3258,7 +3274,7 @@ async function settings() {
       try { const r = await api("/api/email/test", {method: "POST"}); $("#mres").innerHTML = `<span style="color:var(--ok)">✔</span> ${esc(r.message)}`; }
       catch (e) { $("#mres").innerHTML = `<span style="color:var(--bad)">✖</span> ${esc(e.message)}`; }
     });
-    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); loadSaver();
+    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); loadSaver(); loadTrend();
     if (isOwner && $("#bt_test")) {
       api("/api/thumb-best").then(st => { if (st.last_error && $("#bt_res")) $("#bt_res").innerHTML = `<span style="color:var(--bad)">✖ The last Best thumbnail fell back to Better: ${esc(st.last_error)}</span>`; else if (st.last_ok && $("#bt_res")) $("#bt_res").innerHTML = `<span style="color:var(--ok)">✔ The last Best thumbnail worked.</span>`; }).catch(() => {});
       $("#bt_test").onclick = guard(async () => {
@@ -3266,7 +3282,7 @@ async function settings() {
         try { const r = await api("/api/thumb-best/test", {method: "POST"}); $("#bt_res").innerHTML = `<span style="color:var(--${r.ok ? "ok" : "bad"})">${r.ok ? "✔" : "✖"}</span> ${esc(r.message)}`; }
         finally { $("#bt_test").disabled = false; }
       });
-    } if (isOwner) { loadPricing(); loadYtx(); loadTpl(); }
+    } if (isOwner) { loadPricing(); loadYtx(); loadTpl(); loadAiRoutes(); }
     if ($("#mu")) {
       $("#mu").onclick = guard(async () => {
         const f = $("#mf").files[0]; if (!f) throw new Error("Choose a file first");
@@ -3274,6 +3290,61 @@ async function settings() {
       });
       await loadM();
     }
+  });
+  /* ---- AI models (owner): which AI does which job, and its backup */
+  const loadAiRoutes = guard(async () => {
+    const box = $("#airoutecfg"); if (!box) return;
+    const o = await api("/api/ai-routes");
+    if (!box.isConnected) return;
+    box.className = "";
+    const provOpts = (sel, none, vision) => (none ? `<option value="" ${sel ? "" : "selected"}>None (no backup)</option>` : "") +
+      o.providers.filter(p => !vision || p.id === "gemini").map(p => `<option value="${p.id}" ${sel === p.id ? "selected" : ""}>${esc(p.name)}${p.ready ? "" : " (no key saved)"}</option>`).join("");
+    const lists = Object.entries(o.models).map(([k, v]) => `<datalist id="dl_${k}">${v.map(m => `<option value="${esc(m)}"></option>`).join("")}</datalist>`).join("");
+    const row = t => {
+      const p = t.primary || {provider: "gemini", model: ""}, f = t.fallback || {provider: "", model: ""};
+      const model = (role, x) => `<input data-r="${role}_model" list="dl_${x.provider || "gemini"}" value="${esc(x.model || "")}" placeholder="${esc(o.defaults[x.provider || "gemini"])} (default)" ${role === "f" && !x.provider ? "disabled" : ""}>`;
+      return `<details class="fgrp" data-task="${t.id}" ${t.custom ? "open" : ""}><summary>${esc(t.label)}<span class="fgn" data-r="state">${t.custom ? "your choice" : "built-in order"}</span></summary>
+        <div class="help fgd">${esc(t.desc)}${t.vision ? " Only Gemini can look at pictures." : ""}</div>
+        <div class="fields">
+          <div><label>First choice</label><select data-r="p_provider">${provOpts(p.provider, false, t.vision)}</select></div>
+          <div><label>Its model</label>${model("p", p)}</div>
+          <div><label>Backup, if the first fails</label><select data-r="f_provider">${provOpts(f.provider, true, t.vision)}</select></div>
+          <div><label>Its model</label>${model("f", f)}</div>
+        </div>
+        <div class="row" style="padding:0 16px 16px;gap:10px;flex-wrap:wrap;align-items:center"><button type="button" data-r="test">Test the saved choice</button>${t.custom ? `<button type="button" data-r="reset">Back to the built-in order</button>` : ""}<span class="muted" data-r="msg"></span></div></details>`;
+    };
+    box.innerHTML = `<div class="audnote">Choose which AI does each job, and which one takes over if it fails, for example titles on DeepSeek chat with Gemini flash lite as the backup. A model you leave empty uses that AI's default model (Accounts &amp; keys → Advanced). A job you do not change keeps the built-in order. Prices are per AI, not per model: change them in Pricing &amp; costs.</div>
+      ${lists}${o.tasks.map(row).join("")}
+      <div class="row" style="gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap"><button class="pri" id="air_save">Save AI choices</button><button type="button" id="air_reset">Back to the built-in order for everything</button><span class="muted" id="air_msg"></span></div>`;
+    const dirty = new Set();
+    const rowOf = el => el.closest("details[data-task]");
+    box.querySelectorAll("details[data-task]").forEach(d => {
+      const q = r => d.querySelector(`[data-r="${r}"]`);
+      for (const role of ["p", "f"]) {
+        q(role + "_provider").onchange = () => {
+          const v = q(role + "_provider").value, m = q(role + "_model");
+          m.disabled = !v; m.setAttribute("list", "dl_" + (v || "gemini")); m.placeholder = (v ? o.defaults[v] : "") + (v ? " (default)" : ""); if (!v) m.value = "";
+          dirty.add(d.dataset.task); q("state").textContent = "changed: not saved yet";
+        };
+        q(role + "_model").oninput = () => { dirty.add(d.dataset.task); q("state").textContent = "changed: not saved yet"; };
+      }
+      q("test").onclick = guard(async () => {
+        q("msg").textContent = "Testing…";
+        const r = await api("/api/ai-routes/test", {method: "POST", body: {task: d.dataset.task}});
+        q("msg").innerHTML = r.results.map(x => `<span style="color:var(--${x.ok ? "ok" : "bad"})">${x.ok ? "✔" : "✖"}</span> ${x.role === "primary" ? "First" : "Backup"}: ${esc(x.provider)} ${esc(x.model)} - ${esc(x.message)}`).join("<br>");
+      });
+      if (q("reset")) q("reset").onclick = guard(async () => { await api("/api/ai-routes?task=" + encodeURIComponent(d.dataset.task), {method: "DELETE"}); toast("Back to the built-in order"); loadAiRoutes(); });
+    });
+    $("#air_save").onclick = guard(async () => {
+      if (!dirty.size) { $("#air_msg").textContent = "Nothing was changed."; return; }
+      const routes = {};
+      dirty.forEach(id => {
+        const d = box.querySelector(`details[data-task="${id}"]`), g = r => d.querySelector(`[data-r="${r}"]`).value.trim();
+        routes[id] = {primary: {provider: g("p_provider"), model: g("p_model")}, fallback: g("f_provider") ? {provider: g("f_provider"), model: g("f_model")} : null};
+      });
+      await api("/api/ai-routes", {method: "PUT", body: {routes}}); toast("AI choices saved"); loadAiRoutes();
+    });
+    $("#air_reset").onclick = guard(async () => { if (!confirm("Go back to the built-in order for every job?")) return; await api("/api/ai-routes", {method: "DELETE"}); toast("Back to the built-in order"); loadAiRoutes(); });
   });
   /* ---- Email templates (owner): how the emails members receive look and read */
   const loadTpl = guard(async () => {
@@ -3354,7 +3425,7 @@ async function settings() {
     ["AI text, per 1,000 AI tokens", [["gemini_per_1k", "Gemini (text and safety review)"], ["deepseek_per_1k", "DeepSeek (text)"], ["claude_per_1k", "Claude (titles)"]]],
     ["Thumbnail pictures, each", [["image_free", "Better level (free image service)"], ["image_flux", "Best level (FLUX; Gemini planning is charged on top)"], ["image_gemini", "Gemini picture (only if chosen as the Better image service)"]]],
     ["Parts that run on your own computer (0 = free)", [["tts_per_1k_chars", "Voice, per 1,000 characters"], ["whisper_per_min", "Captions, per minute of speech"], ["safety_local_per_clip", "Local safety check, per clip"]]],
-    ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["server_per_video", "Server usage (every video made)"]]],
+    ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["server_per_video", "Server usage (every video made)"], ["trend_short", "Trending mode: Short"], ["trend_compilation", "Trending mode: compilation"]]],
     ["Searching for clips: every clip found", [["youtube_source", "YouTube clip"], ["twitch_source", "Twitch clip"], ["kick_source", "Kick clip"]]],
     ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["email_send", "Each email sent to a member"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
     ["Uploading to YouTube, each", [["upload_short", "Short"], ["upload_compilation", "Compilation"]]],
@@ -3493,6 +3564,20 @@ async function settings() {
       box.querySelector("#src_msg").textContent = "Saved: " + picked.map(cap).join(" + ");
     });
   });
+  const loadTrend = guard(async () => {
+    const box = $("#trendcfg"); if (!box) return;
+    const d = await api("/api/trending");
+    if (!box.isConnected) return;
+    box.className = "";
+    if (!d.allowed) { box.innerHTML = `<div class="audnote">The owner has not switched Trending mode on for you yet. Ask the owner to allow it.</div>`; return; }
+    box.innerHTML = `<div class="audnote">With Trending mode the studio looks back two days, ranks Twitch and YouTube clips and videos by how fast they are growing (views per hour), takes the best live stream too, and an AI can read what is hot for the game. Everything else (safety check, credits, captions) stays the same. It costs <b>${d.price.short} tokens for a Short</b> and <b>${d.price.compilation} for a compilation</b>, charged only when the video is made.</div>
+      <div class="row" style="gap:14px;align-items:center;margin:14px 0"><label class="switch"><input type="checkbox" id="trend_on" ${d.on ? "checked" : ""}><span></span></label><b>Use Trending mode for my videos (Create page and scheduled videos)</b></div>
+      <div class="row" style="gap:12px;align-items:center"><button class="pri" id="trend_save">Save</button><span class="muted" id="trend_msg"></span></div>`;
+    box.querySelector("#trend_save").onclick = guard(async () => {
+      const r = await api("/api/trending", {method: "PUT", body: {on: box.querySelector("#trend_on").checked}});
+      toast(r.on ? "Trending mode is on" : "Trending mode is off"); box.querySelector("#trend_msg").textContent = r.on ? "On: new videos and scheduled videos use it" : "Off";
+    });
+  });
   const loadSaver = guard(async () => {
     const box = $("#savercfg"); if (!box) return;
     const d = await api("/api/ai-saver");
@@ -3573,6 +3658,7 @@ async function settings() {
         ${sel("pf_tstyle", "Style", [["auto", "Vary automatically (never the same as your last two)"]].concat(to.styles.map(x => [x.id, x.name])), b.style, "")}
         ${sel("pf_tfont", "Font", to.fonts.map(f => [f.id, f.name]), b.font, "")}
         ${sel("pf_ttier", "Thumbnail level", (to.tiers || [{id: "better", name: "Better", available: true, price: 1}]).filter(x => x.available || x.id === b.tier).map(x => [x.id, `${x.name}: about ${x.price} token${x.price === 1 ? "" : "s"} a picture`]), b.tier || "better", (to.tiers || []).filter(x => !x.available).map(x => `${x.name}: ${x.reason}`).join(" · "))}
+        ${sel("pf_tface", "Streamer's face on the thumbnail", [["on", "Use it when the video has a webcam"], ["off", "Never"]], b.face || "on", "Only when the video has a face camera: the sharpest, most expressive moment of the face is cut out and put in a corner. No webcam, no face: nothing changes.")}
         ${sel("pf_tpics", "AI pictures for each new thumbnail", [["1", "1 picture"], ["3", "3 pictures to choose from (3 times the picture cost)"]], String(b.pictures || 1), "With 3, the other two are kept for you to pick from in the Thumbnail studio. You can still choose for each video on the Create page.")}
         <div><label>Text colour</label><input type="color" id="pf_tcol" value="${b.text}" style="width:70px;height:36px;padding:0"></div>
         <div><label>Accent colour</label><input type="color" id="pf_acol" value="${b.accent}" style="width:70px;height:36px;padding:0"></div>
@@ -3589,7 +3675,7 @@ async function settings() {
     $("#pf_save").onclick = guard(async () => {
       const r = await api("/api/prefs", {method: "PUT", body: {tts_voice: $("#pf_voice").value, default_audio: $("#pf_audio").value, hold_uploads: $("#pf_hold").value === "1", notify_to: $("#pf_mail").value}});
       ME = r.user;
-      await api("/api/brand", {method: "PUT", body: {style: $("#pf_tstyle").value, font: $("#pf_tfont").value, text: $("#pf_tcol").value, accent: $("#pf_acol").value, pictures: $("#pf_tpics").value, tier: $("#pf_ttier").value}});
+      await api("/api/brand", {method: "PUT", body: {style: $("#pf_tstyle").value, font: $("#pf_tfont").value, text: $("#pf_tcol").value, accent: $("#pf_acol").value, pictures: $("#pf_tpics").value, tier: $("#pf_ttier").value, face: $("#pf_tface").value}});
       toast("Preferences saved");
     });
     $("#pf_logo").onclick = () => $("#pf_logof").click();

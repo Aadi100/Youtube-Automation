@@ -36,6 +36,8 @@ DEFAULT_PRICING = {
     "twitch_source": 0.4,            # searching: every clip found on Twitch
     "kick_source": 0.4,              # searching: every clip found on Kick
     "email_send": 0.3,               # every email sent to a member
+    "trend_short": 2.0,              # Trending mode: looking at what is growing fastest for the game first (a Short); charged only when the video is made
+    "trend_compilation": 8.0,        # the same for a compilation
     "server_per_video": 1.0,         # the server itself (CPU, disk, bandwidth, email service, domain, certificate): charged for every video made
     "finder_scan": 0.5,              # one Clip Finder scan (CPU and bandwidth)
     "editor_render": 0.3,            # one render in the Editor
@@ -170,6 +172,8 @@ def price_event(e: Dict, p: Dict) -> float:
         return float(e.get("units") or 0) * (p["render_compilation"] if prov == "compilation" else p["render_short"])
     if k == "server":
         return float(e.get("units") or 0) * p["server_per_video"]
+    if k == "trend":
+        return float(e.get("units") or 0) * (p["trend_compilation"] if prov == "compilation" else p["trend_short"])
     if k == "source":
         return float(e.get("units") or 0) * float(p.get({"twitch": "twitch_source", "kick": "kick_source"}.get(prov, "youtube_source")) or 0)
     return 0.0
@@ -182,7 +186,7 @@ _LINES = {
     ("tts", ""): ("Narrator voice", "characters"), ("whisper", ""): ("Captions (speech to text)", "minutes"),
     ("safety_local", ""): ("Local safety check", "clips"),
     ("search", ""): ("Finding the clip", "clips"), ("render", "short"): ("Video rendering", "videos"), ("render", "compilation"): ("Video rendering", "videos"),
-    ("server", ""): ("Server usage", "videos"), ("source", "youtube"): ("Clip search (YouTube)", "clips"), ("source", "twitch"): ("Clip search (Twitch)", "clips"), ("source", "kick"): ("Clip search (Kick)", "clips"),
+    ("trend", "short"): ("Trending search", "videos"), ("trend", "compilation"): ("Trending search", "videos"), ("server", ""): ("Server usage", "videos"), ("source", "youtube"): ("Clip search (YouTube)", "clips"), ("source", "twitch"): ("Clip search (Twitch)", "clips"), ("source", "kick"): ("Clip search (Kick)", "clips"),
 }
 
 
@@ -210,6 +214,8 @@ def member_label(label: str) -> Tuple[str, str]:
         return prefix + "Finding the clip", ""
     if "video rendering" in low:
         return prefix + "Making the video", ""
+    if "trending search" in low:
+        return prefix + "Trending search", ""
     if "server usage" in low:
         return prefix + "Server usage", ""
     if "clip search" in low:
@@ -244,7 +250,7 @@ def price_events(events: List[Dict], p: Optional[Dict] = None) -> Tuple[float, L
         if not e.get("ok", True):
             continue
         k, prov = e.get("kind"), e.get("provider")
-        key = (k, prov if k in ("llm", "image", "render", "source") else "")
+        key = (k, prov if k in ("llm", "image", "render", "source", "trend") else "")
         if key not in _LINES:
             continue
         label, unit = _LINES[key]

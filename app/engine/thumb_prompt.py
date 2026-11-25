@@ -15,7 +15,8 @@ import re
 from typing import Dict, Optional
 
 LIMIT = {"better": 760, "best": 1800}        # characters: the free service takes the prompt in a web address, FLUX takes up to 2,048
-TAIL = "No watermark, no logo, no real people, no extra text."
+TAIL = "No other text, no watermark, no logo, no real people."                 # the headline is the only writing in the picture
+TAIL_NOTEXT = "No text, no letters, no words, no numbers, no captions, no speech bubbles, no watermark, no logo, no real people."          # the studio writes the headline afterwards
 _URL = re.compile(r"https?://\S+|www\.\S+", re.I)
 
 GUIDE = """You write the image prompt for FLUX, an AI image model that draws a YouTube thumbnail. Write ONE prompt made for THIS video, not a generic one.
@@ -26,7 +27,7 @@ Rules for a prompt that works:
 - Then the light and the colours. Choose them to fit this moment's mood: funny = bright playful colours; scary = dark teal shadows and cold light; epic = golden rim light and haze;
   rage or chaos = hot reds and oranges with sparks; news or trailers = clean cinematic blue and white. Add one or two accent colours that pop.
 - One strong focal point, large and clear even at small size, high contrast, vivid, cinematic. Leave calm space where the headline goes.
-- Never use real people's names, streamer names, brands, logos or web addresses. Do not describe user interface, health bars or subtitles.
+- Never use real people's names, streamer names, brands, logos or web addresses. Do not describe user interface, health bars or subtitles. Never put words from the title or the clip into the picture (no signs, banners, speech bubbles or captions with words), except the exact headline when it is asked for.
 - {text_rule}
 - {shape_rule}
 - About {words} words. One paragraph, no lists, no quotation marks except around the exact headline.
@@ -52,6 +53,8 @@ def _facts(ctx: Dict, analysis: Optional[Dict], headline: str) -> str:
             rows.append(f"{label}: {str(analysis[k])[:140]}")
     if ctx.get("recipe_hint"):
         rows.append(f"What works for this kind of video (measured from popular thumbnails): {ctx['recipe_hint']}")
+    if ctx.get("leave_corner"):
+        rows.append(f"Layout: keep the lower {ctx['leave_corner']} corner of the picture calm and empty (a face card is placed there afterwards); put any headline in the top half.")
     if headline:
         rows.append(f"Headline for the thumbnail: {headline}")
     return "\n".join(rows)
@@ -74,9 +77,11 @@ def clean(text: str, headline: str, with_text: bool, tier: str, avoid=()) -> Opt
     if len(t) < 80:
         return None
     limit = LIMIT.get(tier, LIMIT["better"])
-    room = limit - len(TAIL) - 1
+    tail = TAIL if with_text else TAIL_NOTEXT
+    room = limit - len(tail) - 1
     if not with_text:
-        t = re.sub(r"[^.]*\b(text|headline|caption|letters?)\b[^.]*\.\s*", "", t, flags=re.I).strip()      # no sentence about writing when the studio writes the headline
+        t = re.sub(r"[\"\u201c][^\"\u201d]{1,80}[\"\u201d]", "", t)                      # an image model prints any quoted words: none may stay
+        t = re.sub(r"[^.]*\b(text|headline|caption|subtitles?|speech bubble|thought bubble|written|writing|letters?)\b[^.]*\.\s*", "", t, flags=re.I).strip()      # no sentence about writing when the studio writes the headline
         t = re.sub(r"\.(?=\S)", ". ", t)
         if len(t) < 80:
             return None
@@ -90,7 +95,7 @@ def clean(text: str, headline: str, with_text: bool, tier: str, avoid=()) -> Opt
     t = t + need
     if not t.endswith("."):
         t += "."
-    return f"{t} {TAIL}"
+    return f"{t} {tail}"
 
 
 def write(ctx: Dict, mode: str, headline: str = "", with_text: bool = False, tier: str = "better", analysis: Optional[Dict] = None) -> Optional[str]:
@@ -101,7 +106,8 @@ def write(ctx: Dict, mode: str, headline: str = "", with_text: bool = False, tie
     text_rule = (f'The headline "{headline}" is part of the picture: write it into the prompt in quotes, say it is huge, thick, perfectly spelled, high contrast with an outline, '
                  "and where it sits (top third or bottom third, never over the face or the action)." if with_text and headline
                  else "Do NOT ask for any text, letters, numbers or logos in the picture: the headline is added afterwards.")
-    shape_rule = ("It is a tall vertical thumbnail: keep the subject and any text inside the middle column." if vertical
+    shape_rule = (("It is a SQUARE picture (it is placed into a tall frame): centre the subject and keep every word fully inside with a clear margin on all four sides." if tier == "best"
+                   else "It is a tall vertical thumbnail: keep the subject and any text inside the middle column.") if vertical
                   else "It is a wide 16:9 thumbnail: keep the subject and any text inside the middle band.")
     words = "110 to 150" if tier == "best" else "55 to 85"
     prompt = GUIDE.format(text_rule=text_rule, shape_rule=shape_rule, words=words) + "\n\nFacts about this video:\n" + _facts(ctx, analysis, headline)

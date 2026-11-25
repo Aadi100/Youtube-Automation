@@ -209,7 +209,7 @@ def _twitch_candidates_one(category: str, hours: int, min_views: int, min_s: int
         if u.ok:
             logins = {x["id"]: x["login"] for x in u.json().get("data", [])}
     return [{"clip_id": c["id"], "source": "twitch", "streamer": c["broadcaster_name"], "title": c["title"],
-             "views": c["view_count"], "duration": c["duration"], "url": c["url"],
+             "views": c["view_count"], "duration": c["duration"], "url": c["url"], "published": c.get("created_at"),
              "channel_url": f"https://www.twitch.tv/{logins[c['broadcaster_id']]}" if c["broadcaster_id"] in logins else None}
             for c in clips]
 
@@ -254,7 +254,7 @@ def _youtube_api(query: str, hours: int) -> List[Dict]:
             continue
         out.append({"vid": i["id"], "title": sn["title"], "channel": sn["channelTitle"],
                     "channel_url": f"https://www.youtube.com/channel/{sn['channelId']}",
-                    "views": int(i["statistics"].get("viewCount", 0)),
+                    "views": int(i["statistics"].get("viewCount", 0)), "published": sn.get("publishedAt"),
                     "duration": _iso_seconds(i["contentDetails"]["duration"])})
     return out
 
@@ -301,7 +301,7 @@ def _youtube_candidates_one(query: str, hours: int, min_views: int, min_s: int) 
         _t.sleep(4)
         raw = _youtube_api(query, hours) if YOUTUBE_API_KEY else _youtube_ytdlp(query, hours)
     rows = [{"clip_id": f"yt_{r['vid']}", "source": "youtube", "streamer": r["channel"], "title": r["title"],
-             "views": r["views"], "duration": r["duration"], "channel_url": r.get("channel_url"),
+             "views": r["views"], "duration": r["duration"], "channel_url": r.get("channel_url"), "published": r.get("published"),
              "url": f"https://www.youtube.com/watch?v={r['vid']}"}
             for r in raw if (r["views"] >= min_views or r["views"] == 0) and min_s <= r["duration"] <= YT_MAX_SOURCE
             and r["channel"].lower().strip() not in OFFICIAL_CHANNELS and _region_ok(r["channel"], r["title"])]
@@ -711,6 +711,11 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
         if source in ("twitch", "youtube") and source not in allowed:
             raise RuntimeError(f"{ {'twitch': 'Twitch', 'youtube': 'YouTube'}[source] } is switched off in your Settings -> Clip sources. Switch it on there, or choose another source.")
         wanted = [s for s in wanted if s in allowed]
+    from app.engine import trending
+    trend = trending.on() and not creator                # Trending mode: look at what is growing fastest for this game right now (not for a creator chosen by name)
+    if trend:
+        hours = trending.window(hours)
+        print(f"[Trending] looking at the last {hours} hours of {game.get('name', 'this game')} and ranking by growth", flush=True)
     _w = clipcfg.want()
     if _w:
         print(f"[Want] this video: {clipcfg.want_summary(_w)} ({'only this' if _w['strict'] else 'prefer this'})", flush=True)
@@ -720,6 +725,8 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
     live_n = 0
     if source in ("live", "all") and not creator:
         live_n = count if source == "live" else (max(1, count // 3) if count > 1 else (1 if _last_clip_was_clip() else 0))
+    if trend and not live_n and "twitch" in allowed and source != "youtube":
+        live_n = 1                                        # the biggest live stream of the game is part of what is trending
     for s in wanted:
         try:
             cands = (twitch_candidates(game.get("twitch_category", ""), hours, min_views, min_seconds, max_seconds)
@@ -732,6 +739,8 @@ def discover_and_download(count: int = 6, hours: int = 24, source: str = "both",
         except Exception as e:
             errors.append(f"{s}: {e}")
             print(f"[Discovery] {s} unavailable - {e}")
+    if trend and ranked:
+        ranked = trending.prepare(game, ranked)           # fastest growing first; an AI theme (Settings -> AI models) can boost what is hot
     if creator:
         try:
             cands = creator_candidates(creator["platform"], creator["name"], hours, min_views, min_seconds, max_seconds)

@@ -72,6 +72,8 @@ def run_job(mode: str, params: dict, source: str, job_id: str, uid: str = None) 
     if diy.get("own_file"):                # a moment the member chose in the clip finder (the file is made by the server, never sent by the browser)
         cmd += ["--clip-file", str(diy["own_file"])]
         diy_env["CLIP_META"] = json.dumps(diy.get("own_meta") or {})
+    if params.get("trending"):              # Trending mode: look at what is growing fastest for the game first (engine/trending.py)
+        diy_env["CLIPSTUDIO_TRENDING"] = "1"
     if params.get("want"):                  # what this video should be about; the run's AI prompts and search follow it (see engine/clipcfg.py)
         from app.engine import clipcfg
         w = clipcfg.clean_want(params["want"])

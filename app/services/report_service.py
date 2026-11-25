@@ -21,6 +21,7 @@ SERVICES = {
     ("render", "short"): ("Rendering a Short", "videos"), ("render", "compilation"): ("Rendering a compilation", "videos"),
     ("source", "youtube"): ("Clip search: YouTube", "clips"), ("source", "twitch"): ("Clip search: Twitch", "clips"), ("source", "kick"): ("Clip search: Kick", "clips"),
     ("email", "send"): ("Emails sent to members", "emails"), ("server", ""): ("Server usage", "videos"), ("server", "studio"): ("Server usage", "videos"),
+    ("trend", "short"): ("Trending search (Short)", "videos"), ("trend", "compilation"): ("Trending search (compilation)", "videos"),
     ("scan", "finder"): ("Clip Finder scans", "scans"), ("edit", "editor"): ("Editor renders", "renders"), ("research", "run"): ("Research runs", "runs"),
     ("storage", "disk"): ("Extra storage", "GB-days"),
 }

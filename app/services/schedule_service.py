@@ -111,6 +111,22 @@ def _offset(uid: str) -> int:
     return 0 if uid == auth.owner_id() else int(hashlib.md5(uid.encode()).hexdigest(), 16) % 20
 
 
+def schedule_params(uid: str, kind: str, user: dict) -> dict:
+    """The settings of one scheduled video. Trending mode is used when the account chose it as its default (Settings -> Trending mode) and the owner allows it."""
+    mode = "auto-short" if kind == "shorts" else "auto-compilation"
+    params = {"audio_mode": default_audio(uid), "source": "all", "game_id": "auto"}
+    if kind == "compilation":
+        params.update(count=14, target_minutes=8)
+    try:
+        from app.engine import clipcfg
+        from app.services import diy_service
+        if clipcfg.trending_on(uid) and diy_service.trending_allowed(user.get("role") == "owner"):
+            params["trending"] = True
+    except Exception:
+        pass
+    return params
+
+
 def scheduler() -> None:
     while True:
         time.sleep(30)
@@ -127,9 +143,7 @@ def scheduler() -> None:
                     if not dt:
                         continue
                     mode = "auto-short" if kind == "shorts" else "auto-compilation"
-                    params = {"audio_mode": default_audio(uid), "source": "all", "game_id": "auto"}
-                    if kind == "compilation":
-                        params.update(count=14, target_minutes=8)
+                    params = schedule_params(uid, kind, u)
                     if not Game.list_for(uid) or not any(g.get("enabled", True) for g in Game.list_for(uid)):
                         continue
                     if u.get("role") != "owner" and tokens.balance(uid) < tokens.cost(mode, params["source"]):

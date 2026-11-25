@@ -55,6 +55,28 @@ def _sources_payload(h) -> dict:
                  "note": "Kick has no way to search clips by game, so the studio cannot look there by itself yet. You can still paste a Kick link in the Clip Finder or the Editor."}]}
 
 
+def _trending_payload(h) -> dict:
+    from app.engine import clipcfg
+    from app.services import diy_service, token_service
+    p = token_service.pricing()
+    return {"on": clipcfg.trending_on(h.uid), "allowed": diy_service.trending_allowed(h.is_owner()), "price": {"short": p["trend_short"], "compilation": p["trend_compilation"]}}
+
+
+def h_trending(h):
+    from app.engine import clipcfg
+    h.send_json(200, _trending_payload(h))
+
+
+def h_trending_put(h):
+    from app.engine import clipcfg
+    from app.services import diy_service
+    on = bool(h.body_json().get("on"))
+    if on and not diy_service.trending_allowed(h.is_owner()):
+        return h.send_json(403, {"error": "Trending mode is not switched on for you. Ask the owner."})
+    clipcfg.save_trending(h.uid, on)
+    h.send_json(200, _trending_payload(h))
+
+
 def h_ai_saver(h):
     from app.engine import clipcfg
     h.send_json(200, {"on": clipcfg.ai_saver_on(h.uid)})
@@ -105,6 +127,8 @@ ROUTES = [
     (r"/api/clipping", "PUT", h_clipping_put),
     (r"/api/audience", "GET", h_audience),
     (r"/api/audience", "PUT", h_audience_put),
+    (r"/api/trending", "GET", h_trending),
+    (r"/api/trending", "PUT", h_trending_put),
     (r"/api/ai-saver", "GET", h_ai_saver),
     (r"/api/ai-saver", "PUT", h_ai_saver_put),
     (r"/api/sources", "GET", h_sources),

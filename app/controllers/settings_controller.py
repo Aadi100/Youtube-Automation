@@ -145,6 +145,27 @@ def h_thumbbest_test(h):
     h.send_json(200, {**thumb_best.test(), "status": thumb_best.status()})
 
 
+# ---- AI models: which AI does which job, and its backup (Settings -> AI models)
+def h_airoutes(h):
+    from app.engine import ai_routes
+    h.send_json(200, ai_routes.overview())
+
+
+def h_airoutes_put(h):
+    from app.engine import ai_routes
+    h.send_json(200, ai_routes.save(h.body_json().get("routes") or {}))
+
+
+def h_airoutes_delete(h):
+    from app.engine import ai_routes
+    h.send_json(200, ai_routes.reset(h.q.get("task") or ""))
+
+
+def h_airoutes_test(h):
+    from app.engine import ai_routes
+    h.send_json(200, {"results": ai_routes.test(h.body_json().get("task") or "")})
+
+
 def h_music(h):
     h.send_json(200, [{"name": p.name, "mb": round(p.stat().st_size / 1e6, 1)}
                       for p in sorted(MUSIC_DIR.iterdir()) if p.suffix.lower() in MUSIC_EXT])
@@ -193,11 +214,15 @@ ROUTES = [
     (r"/api/email-templates/test", "POST", h_tpl_test),
     (r"/api/thumb-best", "GET", h_thumbbest),
     (r"/api/thumb-best/test", "POST", h_thumbbest_test),
+    (r"/api/ai-routes", "GET", h_airoutes),
+    (r"/api/ai-routes", "PUT", h_airoutes_put),
+    (r"/api/ai-routes", "DELETE", h_airoutes_delete),
+    (r"/api/ai-routes/test", "POST", h_airoutes_test),
     (r"/api/music", "GET", h_music),
     (r"/api/music", "POST", h_music_upload),
     (r"/api/music", "DELETE", h_music_delete),
 ]
 OWNER_ONLY.update({h_claude_models, h_settings,h_settings_put, h_email_test, h_music_upload, h_music_delete,
-                   h_ytaccess, h_ytaccess_proxy_delete, h_ytaccess_test, h_tpl, h_tpl_put, h_tpl_delete, h_tpl_preview, h_tpl_test, h_thumbbest, h_thumbbest_test})
+                   h_ytaccess, h_ytaccess_proxy_delete, h_ytaccess_test, h_tpl, h_tpl_put, h_tpl_delete, h_tpl_preview, h_tpl_test, h_thumbbest, h_thumbbest_test, h_airoutes, h_airoutes_put, h_airoutes_delete, h_airoutes_test})
 bp = Blueprint("settings", __name__)
 register(bp, ROUTES)

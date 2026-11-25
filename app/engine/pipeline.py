@@ -94,6 +94,13 @@ def _bill_finding(found, mode: str, own: bool) -> None:
             _usage("source", plat, n)
 
 
+def _bill_trend(mode: str) -> None:
+    """Trending mode was used (it really ranked candidates): its fee is recorded and charged when the video is made."""
+    from app.engine import trending
+    if trending.used():
+        _usage("trend", "compilation" if "compilation" in mode else "short", 1)
+
+
 def _bill_render(mode: str) -> None:
     _usage("render", "compilation" if "compilation" in mode else "short", 1)
     _usage("server", "", 1)                                       # the server's share of every video (also a video made from the member's own clip)
@@ -446,6 +453,7 @@ def main():
             if not found:
                 raise SystemExit("No new clips found.")
         _bill_finding(found, a.mode, own=bool(a.clip_file or a.url))        # what this run used besides AI: finding the clip (and the YouTube extra)
+        _bill_trend(a.mode)                                                   # Trending mode, when it was used
         if creator and a.game == "auto" and found and found[0].get("game_name"):
             game = {**game, "name": found[0]["game_name"]}       # a creator's clip knows its game: use it for the title and thumbnail
         if a.mode == "auto-short":

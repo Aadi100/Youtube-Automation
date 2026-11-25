@@ -18,8 +18,9 @@ FLAGS = {"own_metadata": "Members may write their own title, description and tag
          "ai_choice": "Members may choose which AI writes (cheaper or better, or none)",
          "pick_creator": "Members may choose a Twitch or YouTube creator to take clips from",
          "tier_high": "Members may use the Best thumbnail level (Gemini plans it and FLUX draws it; costs more tokens)",
+         "trending": "Members may use Trending mode (looks at what is growing fastest for the game first; costs extra tokens)",
          "research": "Members may use the clipping research (Claude searches the web; the cost is yours, not billed in tokens)"}
-DEFAULT_OFF = {"pick_creator", "tier_high", "research"}          # a named creator is a bigger copyright risk than a game search, so the owner switches it on
+DEFAULT_OFF = {"pick_creator", "tier_high", "research", "trending"}          # a named creator is a bigger copyright risk than a game search, so the owner switches it on
 AI_CHOICES = ("budget", "balanced", "quality", "off")
 YT_URL = re.compile(r"^https://(www\.|m\.)?(youtube\.com/(watch\?v=|shorts/|live/)|youtu\.be/)[\w\-]{6,15}[\w\-&=%.?/]*$")
 
@@ -119,4 +120,9 @@ def estimate() -> Dict:
 
 
 def options_for(uid_is_owner: bool) -> Dict:
-    return {"flags": flags(), "estimate": estimate(), "owner": uid_is_owner}
+    p = tokens.pricing()
+    return {"flags": flags(), "estimate": {**estimate(), "trend": {"short": p["trend_short"], "compilation": p["trend_compilation"]}}, "owner": uid_is_owner}
+
+
+def trending_allowed(uid_is_owner: bool) -> bool:
+    return bool(uid_is_owner or flags().get("trending"))

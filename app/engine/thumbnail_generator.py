@@ -254,6 +254,7 @@ def generate_thumbnail(
         finally:
             tmp.unlink(missing_ok=True)
     art = None
+    facecard = None
     art_file = output_path.parent / f"{output_path.stem}_ai.jpg"
     n_pics = pictures_wanted(brand)
     ref = None
@@ -265,7 +266,13 @@ def generate_thumbnail(
         else:
             got = None
             # what the prompt writer is told about THIS video: the game, the kind of video, the clip's title and what happens, a recipe hint, and what Gemini saw
+            facecard = None
+            if video_path and Path(video_path).exists() and not background_image:
+                from app.engine import face_card
+                facecard = face_card.make(Path(video_path), brand)       # only when the video has a steady face camera; otherwise None and nothing changes
             pctx = {**ctx, "scene": scene}
+            if facecard:
+                pctx["leave_corner"] = "right"
             if recipe:
                 pctx["recipe_hint"] = f"headline {recipe.get('text_pos', 'top')}, accent {recipe.get('accent')}, looks {', '.join(recipe.get('styles', []))}"
             analysis = {k: plan.get(k) for k in ("subject", "action", "setting", "mood")} if plan else None
@@ -315,8 +322,11 @@ def generate_thumbnail(
     if tier == "best" and art is not None and not background_image:
         from app.engine import thumb_best
         if not thumb_best.text_by_code():
+            if facecard:
+                from app.engine import face_card
+                art = face_card.place(art, facecard, mode, "right")
             art.save(output_path, "JPEG", quality=94)
-            LAST.update({"style": None, "recipe": content_type if recipe else None, "tier": "best", "headline": flux_headline})
+            LAST.update({"style": None, "recipe": content_type if recipe else None, "tier": "best", "headline": flux_headline, "face": bool(facecard)})
             print(f"[Thumbnail] Generated {mode} thumbnail (best, FLUX): {output_path}")
             return output_path
 
@@ -332,8 +342,13 @@ def generate_thumbnail(
         thumb_styles.LOOK.update(sat=recipe.get("sat_boost", 1.2), vignette=recipe.get("vignette", 0))
 
     def draw(text: str) -> Image.Image:
-        return thumb_styles.render(art, frame, style=style, mode=mode, headline=text, subtext=subtext or (game_name or ""), text=tcol, accent=acol,
-                                   font=font or brand.get("font"), logo=logo_of(uid))
+        kw = dict(style=style, mode=mode, subtext=subtext or (game_name or ""), text=tcol, accent=acol, font=font or brand.get("font"), logo=logo_of(uid))
+        img = thumb_styles.render(art, frame, headline=text, **kw)
+        if facecard:                              # the streamer's face from the webcam, in the corner that hides the least of the headline
+            from app.engine import face_card
+            blank = thumb_styles.render(art, frame, headline="\u200b", **kw)
+            img = face_card.place(img, facecard, mode, "right", face_card.text_bbox(img, blank))
+        return img
     try:
         img = draw(headline)
         img.save(output_path, "JPEG", quality=94)
@@ -353,6 +368,7 @@ def generate_thumbnail(
     if used == "better" and requested_tier == "best":
         print("[Thumbnail] the Best level could not be used this time (the picture came from the free service); it is recorded and billed as Better")
     LAST["tier"] = used
+    LAST["face"] = bool(facecard)
     LAST["headline"] = headline
     print(f"[Thumbnail] Generated {mode} thumbnail ({style}, {tier}, {'AI art' if art is not None else 'video frame'}): {output_path}")
     return output_path

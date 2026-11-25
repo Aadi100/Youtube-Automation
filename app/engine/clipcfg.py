@@ -76,6 +76,21 @@ def save_sources(uid, items) -> List[str]:
     return keep
 
 
+def trending_on(uid: Optional[str] = None) -> bool:
+    """Has this account chosen Trending mode as its default (the Create page starts with it on, and scheduled videos use it)? Off until it does."""
+    try:
+        from app.models import Setting
+        return bool((Setting.find_one(id=_doc_id(uid)) or {}).get("trending"))
+    except Exception:
+        return False
+
+
+def save_trending(uid, on) -> bool:
+    from app.models import Setting
+    Setting.set_fields(_doc_id(uid), {"trending": bool(on)}, upsert=True)
+    return bool(on)
+
+
 def ai_saver_on(uid: Optional[str] = None) -> bool:
     """Has this account switched the AI saver on (Settings -> AI saver)? Off until it does."""
     try:
