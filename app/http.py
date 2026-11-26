@@ -43,7 +43,7 @@ SECURITY_HEADERS = [
 ]
 PUBLIC = {("GET", "/"), ("GET", "/app"), ("GET", "/healthz"), ("GET", "/api/ui-version"), ("GET", "/api/auth/status"), ("POST", "/api/auth/login"),
           ("POST", "/api/auth/signup"), ("POST", "/api/auth/logout")}
-PUBLIC_RE = [r"/approve/[\w-]{20,64}(/decline)?", r"/api/youtube/callback"]          # protected by their own one-time token
+PUBLIC_RE = [r"/approve/[\w-]{20,64}(/decline)?", r"/api/youtube/callback", r"/assets/(css|js)/[\w.-]+"]          # protected by their own one-time token
 INTERNAL_RE = [r"/run", r"/file", r"/api/schedule/claim/(shorts|compilation)", r"/api/videos/[0-9a-f]{24}/uploaded"]   # n8n on this machine
 OWNER_ONLY: set = set()                                      # endpoint functions only the owner may call (controllers add theirs)
 VIEWS: dict = {}                                             # Flask endpoint name -> endpoint function

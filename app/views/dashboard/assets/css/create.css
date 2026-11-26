@@ -1,0 +1,62 @@
+/* The Make a video page and the pickers (tiles and chips) used on every page. */
+/* ===== create: the picker layout ===== */
+#pk_source{grid-template-columns:repeat(auto-fit,minmax(112px,1fr))}#pk_source .pk b{font-size:13.5px}
+.crt{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:20px;align-items:start}
+@media (max-width:1180px){.crt{grid-template-columns:1fr}}
+.crt-main{display:flex;flex-direction:column;gap:16px;min-width:0}
+.crt-side{position:sticky;top:18px;display:flex;flex-direction:column;gap:16px}
+@media (max-width:1180px){.crt-side{position:static}}
+.crt-sec{padding:22px 24px}
+.crt-h{display:flex;gap:14px;align-items:center;margin-bottom:14px}
+.crt-h h2{margin:0;font-size:18px}.crt-h p{margin:2px 0 0;color:var(--muted);font-size:13.5px}
+.crt-n{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;font-weight:900;flex:none;background:linear-gradient(135deg,#ffb04a,#ff6a00 60%,var(--ember));color:var(--onaccent);box-shadow:0 8px 20px -8px rgba(255,106,0,.8)}
+.crt-l{margin:18px 0 8px;font-size:12px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted)}
+.crt-seg button{padding:8px 16px}
+.crt-kind{grid-template-columns:1fr 1fr}
+.crt-kind .choice{padding:18px;gap:6px;border-radius:22px;background:var(--panel2);min-height:140px}
+.crt-kind .choice.on{border-color:var(--accent);background:radial-gradient(220px 110px at 15% 0%,rgba(255,122,24,.3),transparent 70%),var(--panel2);box-shadow:0 0 0 1px var(--accent),0 18px 40px -18px rgba(255,106,0,.85)}
+.crt-kind .choice b{font-size:18px}.crt-kind .choice .kd{font-size:13px;line-height:1.45}
+.kart{width:48px;height:48px;border-radius:15px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent2);margin-bottom:6px}
+.choice.on .kart{background:linear-gradient(135deg,#ffb04a,#ff6a00 60%,var(--ember));color:var(--onaccent)}
+.kart svg,.pki svg{width:23px;height:23px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.pkgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.pk{flex-direction:column;align-items:flex-start;gap:4px;padding:14px;border-radius:20px;background:var(--panel2);text-align:left;color:var(--muted);transition:border-color .15s,box-shadow .2s,transform .12s,background .2s}
+.pk b{color:var(--text);font-size:14.5px}.pk span:not(.pki){font-size:12.5px;font-weight:400;line-height:1.4}
+.pki{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:var(--panel3);color:var(--muted);margin-bottom:4px}
+.pk:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--line) 50%,var(--accent) 50%)}
+.pk.on{border-color:var(--accent);color:var(--text);background:radial-gradient(160px 90px at 20% 0%,rgba(255,122,24,.26),transparent 70%),var(--panel2);box-shadow:0 0 0 1px var(--accent),0 14px 32px -16px rgba(255,106,0,.85)}
+.pk.on .pki{background:linear-gradient(135deg,#ffb04a,#ff6a00 60%,var(--ember));color:var(--onaccent)}
+.pkchips{display:flex;gap:8px;flex-wrap:wrap}
+.pkchip{gap:9px;padding:7px 14px 7px 8px;border-radius:99px;background:var(--panel2);font-weight:600}
+.pkchip i{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:900;font-size:13px;background:var(--panel3);color:var(--muted)}
+.pkchip.on{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}.pkchip.on i{background:linear-gradient(135deg,#ffb04a,#ff6a00);color:var(--onaccent)}
+.edsearch .pkmini{display:flex;gap:4px;flex:none}
+.pkmini .pk{flex-direction:row;align-items:center;gap:6px;padding:6px 12px 6px 8px;border-radius:99px;background:transparent;border-color:transparent}
+.pkmini .pk span:not(.pki){display:none}.pkmini .pki{width:26px;height:26px;border-radius:50%;margin:0}.pkmini .pki svg{width:15px;height:15px}.pkmini .pk b{font-size:13px}
+.pkmini .pk.on{background:var(--accent-soft);box-shadow:none;border-color:var(--accent)}
+.crt-sum{padding:22px}
+.sumrows{display:flex;flex-direction:column;margin:2px 0 12px}
+.sumrow{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}.sumrow:first-child{border-top:0}
+.sumrow span{color:var(--muted)}.sumrow b{text-align:right;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crt-cost{font-size:12.5px;line-height:1.5;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:11px 14px;margin-bottom:14px}
+.crt-go{width:100%;justify-content:center;padding:15px;font-size:16px;border-radius:18px}
+.crt-sec details.more{border-top:0;padding-top:0}
+.crt-sec details.more>summary{background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:12px 16px;color:var(--text)}
+.crt-sec details.more>summary:hover{border-color:color-mix(in srgb,var(--line) 50%,var(--accent) 50%)}
+.crt-sec details.more+details.more{margin-top:10px}
+.crt-sec details.more[open]>summary{border-color:var(--accent)}
+
+/* ===== pickers on every page ===== */
+main{min-width:0}.card{min-width:0}.card:has(>table),.card>div:has(>table){overflow-x:auto}.toolbar .pkbar{max-width:100%}
+.pkbar{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0}
+.pkc{padding:8px 16px;border-radius:99px;background:var(--panel2);font-weight:600;font-size:13.5px;color:var(--muted);transition:border-color .15s,background .15s,box-shadow .2s,transform .1s}
+.pkc:hover{color:var(--text);border-color:color-mix(in srgb,var(--line) 50%,var(--accent) 50%)}
+.pkc.on{border-color:var(--accent);background:var(--accent-soft);color:var(--text);box-shadow:0 0 0 1px var(--accent),0 8px 22px -12px rgba(255,106,0,.8)}
+.pkgrid.auto{grid-template-columns:repeat(auto-fill,minmax(190px,1fr));margin:2px 0}
+.toolbar .pkbar{margin:0}
+.pktimes{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0}
+.pkt{display:inline-flex;gap:8px;align-items:center;padding:6px 7px 6px 14px;border-radius:99px;background:var(--accent-soft);border:1px solid rgba(255,122,24,.45);font-weight:800;font-variant-numeric:tabular-nums}
+.pkt b{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:rgba(0,0,0,.3);cursor:pointer;font-size:13px;font-weight:700;line-height:1}.pkt b:hover{background:var(--bad-soft);color:var(--bad)}
+.pktadd{display:inline-flex;gap:6px;align-items:center;margin-left:4px}
+.pkt-in{width:118px;padding:6px 10px;border-radius:99px}
+.pkt-go{padding:7px 14px;font-size:13px}

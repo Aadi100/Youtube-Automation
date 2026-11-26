@@ -1,0 +1,50 @@
+/* Games, clips, the clip finder and research. */
+/* ===== games: a cover on every card ===== */
+.gcard{position:relative;overflow:hidden;padding-top:84px}
+.gcard::before{content:"";position:absolute;inset:0 0 auto 0;height:70px;background:radial-gradient(260px 90px at 12% 0%,rgba(255,122,24,.5),transparent 70%),linear-gradient(135deg,rgba(255,106,0,.3),rgba(255,77,26,.06))}
+.gcard:nth-child(3n+2)::before{background:radial-gradient(260px 90px at 12% 0%,rgba(255,177,92,.5),transparent 70%),linear-gradient(135deg,rgba(255,177,92,.28),rgba(255,122,24,.05))}
+.gcard:nth-child(3n+3)::before{background:radial-gradient(260px 90px at 12% 0%,rgba(255,77,26,.5),transparent 70%),linear-gradient(135deg,rgba(255,77,26,.3),rgba(180,40,10,.06))}
+.gcard>header{margin-top:-36px;position:relative}
+.gicon{width:60px;height:60px;border-radius:19px;font-size:24px;box-shadow:0 12px 26px -10px rgba(255,106,0,.9),0 0 0 4px var(--panel)}
+.gcard header b{font-size:18px}
+.gcard:hover{border-color:var(--accent);box-shadow:0 20px 44px -22px rgba(255,106,0,.7)}
+/* ===== clips and tables: roomier rows, soft source tags ===== */
+td .badge,.chip{white-space:nowrap}
+
+/* ===== clip finder gallery ===== */
+.fnd{padding:22px 24px;border-color:color-mix(in srgb,var(--line) 55%,var(--accent) 45%);box-shadow:0 30px 70px -40px rgba(255,106,0,.55)}
+.fhead{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr));gap:16px;margin:16px 0 8px}
+.fcard{border:1px solid var(--line);border-radius:22px;overflow:hidden;background:var(--panel2);transition:border-color .15s,box-shadow .2s,transform .12s}
+.fcard:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--line) 50%,var(--accent) 50%)}
+.fcard.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 18px 40px -18px rgba(255,106,0,.85)}
+.fv{position:relative;aspect-ratio:16/10;background:#000;display:grid;place-items:center;overflow:hidden}
+.fv video{position:absolute;inset:0;width:100%;height:100%;max-height:none;object-fit:cover;border-radius:0;cursor:pointer}
+.fplay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:54px;height:54px;padding:0;justify-content:center;border-radius:50%;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);color:#fff;border-color:rgba(255,255,255,.3);font-size:18px}
+.fcard.playing .fplay{opacity:0}.fcard.playing:hover .fplay{opacity:.9}
+.fwait{display:flex;flex-direction:column;gap:8px;align-items:center;color:var(--muted);font-size:13px}
+.frank{position:absolute;left:10px;top:10px;background:rgba(0,0,0,.6);color:#fff;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:800;pointer-events:none}
+.fscore{position:absolute;right:10px;top:10px;min-width:36px;text-align:center;background:linear-gradient(135deg,#ffb04a,#ff6a00 60%,var(--ember));color:var(--onaccent);border-radius:99px;padding:2px 10px;font-size:13px;font-weight:900;pointer-events:none}
+.fsel{position:absolute;right:10px;bottom:10px;width:34px;height:34px;padding:0;justify-content:center;border-radius:50%;background:rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.7);color:var(--onaccent);font-weight:900}
+.fcard.on .fsel{background:linear-gradient(135deg,#ffb04a,#ff6a00);border-color:#fff}
+.fm{padding:12px 14px 14px}.fm b{font-variant-numeric:tabular-nums}.fm>span{color:var(--muted);margin-left:8px;font-size:13px}
+.fr{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.frs{padding:3px 10px;border-radius:99px;background:var(--accent-soft);color:var(--accent2);font-size:11.5px;font-weight:700}
+.fbar{position:sticky;bottom:12px;z-index:5;display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:14px;padding:12px 16px;border-radius:22px;background:color-mix(in srgb,var(--panel) 90%,transparent);backdrop-filter:blur(10px);border:1px solid color-mix(in srgb,var(--line) 50%,var(--accent) 50%);box-shadow:0 18px 44px -20px rgba(0,0,0,.8)}
+.fbl{display:flex;flex-direction:column;min-width:200px}.fopts{flex:1;min-width:220px}.fopts details.more{border:0;padding:0}
+.edlive{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:14px 16px;border-radius:20px;margin-bottom:14px;background:linear-gradient(90deg,rgba(255,77,26,.22),transparent),var(--panel2);border:1px solid rgba(255,77,26,.5)}
+
+/* ===== research ===== */
+.rs-ask{padding:22px 24px}
+.inskpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:6px}
+.insk{background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:12px 14px;display:flex;flex-direction:column}.insk b{font-size:26px;line-height:1.1}.insk span{color:var(--muted);font-size:12.5px}
+.insk.ok b{color:var(--ok)}.insk.warn b{color:var(--warn)}.insk.bad b{color:var(--bad)}.insk.idle b{color:var(--muted)}
+.insh{margin:20px 0 10px;font-size:14.5px}
+.insrow{display:flex;gap:14px;align-items:center;padding:12px 4px;border-top:1px solid var(--line)}.insrow:first-child{border-top:0}
+.insn{width:28px;height:28px;border-radius:50%;background:var(--accent);color:#1a0e00;font-weight:800;display:grid;place-items:center;flex:none}
+.insmain{flex:1;min-width:0}
+.insscore{width:110px;height:24px;border-radius:99px;background:var(--panel3);position:relative;overflow:hidden;flex:none}.insscore i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,var(--accent),#ffb36b)}.insscore b{position:relative;display:block;text-align:center;line-height:24px;font-size:12.5px}
+.insplan{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr));gap:12px}.insp{border:1px solid var(--line);border-radius:16px;padding:14px;background:var(--panel2)}.insp b{text-transform:capitalize}
+.insgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:22px}
+.insbar{display:grid;grid-template-columns:minmax(90px,38%) 1fr 28px;align-items:center;gap:8px;width:100%;background:none;border:0;padding:5px 0;text-align:left;color:inherit;cursor:pointer}
+.insbar span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}.insbar i{height:10px;border-radius:99px;background:linear-gradient(90deg,var(--accent),#ffb36b);display:block;min-width:6px}.insbar em{font-style:normal;color:var(--muted);font-size:12.5px;text-align:right}.insbar:hover span{color:var(--accent)}
+@media (max-width:560px){.insrow{flex-wrap:wrap}.insscore{width:100%}}

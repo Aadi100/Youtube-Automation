@@ -101,7 +101,7 @@ app/
   __init__.py              create_app(): the Flask application factory
   models/        (M)       MongoEngine documents + data access: accounts.py, content.py (games, clips, videos, jobs, claims),
                            system.py, billing.py, youtube.py, base.py (connection, base class)
-  views/         (V)       dashboard/index.html (the web app), templates/ (Jinja pages, e.g. the email approval page), serializers.py (JSON)
+  views/         (V)       dashboard/index.html (the page shell) with assets/css/ (base.css ... calm.css: the LAST file is the look of the whole dashboard) and assets/js/ (core.js, shell.js, then one file per page, routes.js last), templates/ (Jinja pages, e.g. the email approval page), serializers.py (JSON)
   controllers/   (C)       Flask blueprints, one per area: auth, admin, video, job, game, clip, schedule, settings, youtube, approve, system
   services/                business logic: queue_service, upload_service, schedule_service, maintenance_service, auth_service,
                            token_service, youtube_service, notify_service, storage_service, backup_service

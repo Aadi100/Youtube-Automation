@@ -10,6 +10,7 @@ from app.utils.envfile import read_env
 HOST = os.environ.get("STUDIO_HOST") or read_env().get("STUDIO_HOST") or "127.0.0.1"   # a server behind a proxy uses 0.0.0.0
 PORT = int(os.environ.get("STUDIO_PORT") or 8765)
 DASH = BASE_DIR / "app" / "views" / "dashboard" / "index.html"
+ASSETS = BASE_DIR / "app" / "views" / "dashboard" / "assets"       # the dashboard's own css/ and js/ files, one per page
 LANDING = BASE_DIR / "app" / "views" / "templates" / "landing.html"
 ENV_FILE = BASE_DIR / ".env"
 N8N_PUBLISH_URL = "http://localhost:5678/webhook/clip-studio-publish"

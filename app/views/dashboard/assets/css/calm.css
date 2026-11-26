@@ -1,0 +1,130 @@
+/* THE LAST LAYER, ON PURPOSE. The flat, quiet look: no glow, no gradients, one accent colour. Change the look of the whole dashboard here. */
+/* ===== calm design: flat, quiet surfaces. One accent colour, used sparingly. No glow, no gradients, no decoration. (This layer comes last on purpose.) ===== */
+:root{
+  --bg:#111315;--panel:#181b1f;--panel2:#1f2328;--panel3:#2a2f36;--line:#2c3138;--text:#eef0f2;--muted:#9aa3ad;
+  --accent:#ff8a3d;--accent2:#ffa566;--accent-soft:rgba(255,138,61,.12);--onaccent:#1a0d03;--radius:12px;
+  --ok:#3ecf8e;--warn:#f0b429;--bad:#f06a6a;--shadow:none;--glow1:transparent;--glow2:transparent;
+}
+:root[data-theme=light]{
+  --bg:#f6f7f8;--panel:#ffffff;--panel2:#f1f3f5;--panel3:#e6e9ed;--line:#e2e5e9;--text:#1b1f24;--muted:#5f6b78;
+  --accent:#d9560b;--accent2:#b8470a;--accent-soft:rgba(217,86,11,.09);--onaccent:#ffffff;--shadow:none;
+}
+body{background-image:none!important;font-size:15px;line-height:1.55}
+body::before{display:none!important}
+#authov{background-image:none!important}
+main>*{animation:none!important}
+h1{font-size:26px!important;font-weight:700!important;letter-spacing:-.3px!important}
+h2{font-weight:650!important}
+.lede{font-size:15px!important;color:var(--muted)}
+/* surfaces: flat, thin border, small radius, no shadow, no glass */
+.card,.vc,.gcard,.dsec,.step,.tsbox,.authbox,.kpi,.banner,.drawer .panel,.choice{background-image:none!important;box-shadow:none!important}
+.card,.gcard,.dsec,.step{border-color:var(--line)!important;border-radius:var(--radius)!important;padding:18px 20px}
+.card:hover,.gcard:hover{border-color:var(--line)!important}
+.vc,.gcard,.dsec,.step,.choice{border-radius:var(--radius)!important}
+a.kpi:hover,.vc:hover{border-color:var(--accent)!important;box-shadow:none!important;transform:none!important}
+.drawer .panel{border-radius:16px 0 0 16px!important}
+.banner{border-radius:var(--radius)!important;background:var(--accent-soft)!important;border-color:var(--line)!important}
+/* sidebar: a plain column, not a floating glass pill */
+@media (min-width:981px){
+  .app{grid-template-columns:248px minmax(0,1fr)!important}
+  nav{top:0!important;height:100vh!important;margin:0!important;border:0!important;border-right:1px solid var(--line)!important;border-radius:0!important;padding:20px 12px!important;background-image:none!important;box-shadow:none!important}
+  main{padding:30px 40px 80px!important}
+}
+nav{background-image:none!important}
+.brand{font-weight:800!important;letter-spacing:.3px!important;margin:0 8px 14px!important}
+.brand .logo{background:var(--accent)!important;box-shadow:none!important;border-radius:8px!important}
+nav a{border-radius:8px!important;padding:8px 10px!important;gap:10px!important;font-weight:500!important}
+nav a svg{box-sizing:border-box!important;width:18px!important;height:18px!important;padding:0!important;border-radius:0!important;background:none!important;box-shadow:none!important}
+nav a:hover{background:var(--panel2)!important}
+nav a:hover svg{background:none!important}
+nav a.on{background:var(--accent-soft)!important;box-shadow:none!important;color:var(--accent)!important;font-weight:600!important}
+nav a.on svg{background:none!important;color:var(--accent)!important;box-shadow:none!important}
+.navgroup{margin:18px 10px 4px!important;letter-spacing:.8px!important;font-size:11px!important}
+.userchip,.pill{border-radius:10px!important}
+/* buttons: solid, rectangular-ish, no glow */
+button,.btn{border-radius:8px!important;padding:9px 16px!important}
+button.pri,.btn.pri,.seg button.on{background:var(--accent)!important;background-image:none!important;color:var(--onaccent)!important;box-shadow:none!important;font-weight:650!important;border-color:transparent!important}
+button.pri:hover{background:var(--accent2)!important;filter:none!important;box-shadow:none!important}
+.seg,.seg button,.toolbar input[type=search],.toolbar select,.hero2act .btn,.hero2act button,.approve .acts button{border-radius:8px!important}
+.badge{border-radius:6px!important;padding:2px 9px!important}
+.vc-img .badge{border-radius:6px!important}
+input,select,textarea{border-radius:8px!important}
+input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px var(--accent-soft)!important}
+.choice.on,.typecard:has(input:checked),.tschip.on{box-shadow:0 0 0 1px var(--accent)!important}
+.stabs button,.stabs button.on{border-radius:8px!important;box-shadow:none!important}
+.pgx-ring{box-shadow:none!important}.pgx-bar i{background:var(--accent)!important}
+.pill.live .d{box-shadow:none!important}
+.brand .logo{color:var(--onaccent)}
+/* numbers: plain text, no gradient fill */
+.kpi .n,.tile .n{background:none!important;-webkit-background-clip:initial!important;background-clip:initial!important;color:var(--text)!important;font-size:30px!important;letter-spacing:-.5px!important}
+.kpi{padding:16px 18px!important;gap:14px!important}
+.kpi .ic{width:42px!important;height:42px!important;border-radius:10px!important;box-shadow:none!important}
+.authhero h2 em{background:none!important;color:var(--accent)!important;-webkit-background-clip:initial!important;background-clip:initial!important}
+.authhero li::before{box-shadow:none!important}
+table{border-collapse:collapse}
+tbody tr:hover td,tr.click:hover td{background:var(--panel2)!important}
+tr.click:hover td:first-child,tbody tr:hover td:first-child,tr.click:hover td:last-child,tbody tr:hover td:last-child{border-radius:0!important}
+th,td{padding:12px 12px!important}
+/* the old welcome banner (orb, spinning ring) is gone: a plain page header instead */
+.hero2{display:block!important;padding:0!important;margin:0 0 22px!important;border:0!important;border-radius:0!important;background:none!important;box-shadow:none!important;overflow:visible!important}
+.hero2 h1{font-size:28px!important;margin:0 0 4px!important;letter-spacing:-.4px!important}
+.hero2art{display:none!important}
+.eyebrow2{font-size:13px!important;letter-spacing:0!important;text-transform:none!important;font-weight:500!important;color:var(--muted)!important}
+.hero2act{margin-top:14px}
+/* "get started": numbered steps for a new account */
+.gs{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:20px 22px;margin:0 0 18px}
+.gs h2{margin:0 0 2px!important;font-size:18px!important}
+.gs>p{margin:0 0 14px;color:var(--muted)}
+.gsl{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.gsl li{display:flex;gap:14px;align-items:center;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.gsl li.done{opacity:.6}
+.gsl .no{flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;background:var(--accent);color:var(--onaccent)}
+.gsl li.done .no{background:var(--ok);color:#06210f}
+.gsl .tx{flex:1;min-width:0}.gsl .tx b{display:block}.gsl .tx span{color:var(--muted);font-size:13.5px}
+.gsl a.btn,.gsl button{flex:none}
+/* nav: the extra tools are folded away until asked for */
+.navmore{margin-top:6px}
+.navmore>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--muted);font-weight:500}
+.navmore>summary::-webkit-details-marker{display:none}
+.navmore>summary:hover{background:var(--panel2);color:var(--text)}
+.navmore>summary svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.navmore>summary::after{content:"";margin-left:auto;width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg) translateY(-2px);transition:transform .15s}
+.navmore[open]>summary::after{transform:rotate(225deg)}
+.navmore[open]>summary{color:var(--text)}
+@media (max-width:980px){.gsl li{flex-wrap:wrap}.gsl a.btn,.gsl button{width:100%}}
+/* calm design, part 2: the same flat treatment for the Create picker, Games, Editor, Finder and the small details */
+body{font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif!important}
+b,strong,.pk b,.choice b,.kart+*{font-weight:650}
+.userchip .av,.avinit,.gicon,.crt-n,.pxh span,.edgo,.edpp,.fscore,.bell i,.betatag,.choice.on .kart,.pk.on .pki,.pkchip.on i,.fcard.on .fsel,.etseg i{background:var(--accent)!important;background-image:none!important;box-shadow:none!important;color:var(--onaccent)!important}
+.avbig{box-shadow:none!important}
+.avinit{font-weight:700!important}
+.crt-n{border-radius:8px!important;font-weight:700!important;width:30px!important;height:30px!important}
+.gcard::before{display:none!important}
+.gicon{border-radius:12px!important;width:48px!important;height:48px!important;font-size:19px!important}
+.gcard:hover,.fcard.on,.edtile.on,.crt-kind .choice.on,.pk.on,.pkc.on,.pkchip.on,.fnd{box-shadow:none!important}
+.crt-kind .choice.on,.pk.on,.edtile.on{background:var(--accent-soft)!important;background-image:none!important;border-color:var(--accent)!important}
+.pk,.choice,.pkc,.edtile,.edcol,.edbig,.fcard,.pxv,.pxhelper,.rxnote,.edlive,.npanel{border-radius:10px!important;background-image:none!important;box-shadow:none!important}
+.edbig{background:var(--panel2)!important}
+.edlive{background:var(--panel2)!important}
+.edsearch,.edask{border-radius:10px!important;box-shadow:none!important}
+.edm{background-image:none!important}
+.npanel{background:var(--panel)!important;border:1px solid var(--line)!important}
+.pkt{border-radius:8px!important}
+.pgx-bar i,.insbar i,.rxprog i,.rxs u,.rxw u,.insscore i{background:var(--accent)!important;background-image:none!important}
+.pgx-bar i::after{display:none!important}
+.fnd{border-color:var(--line)!important}
+.betatag{border-radius:5px!important;font-weight:700!important}
+.pk.on .pki,.pk .pki,.kart{border-radius:8px!important}
+::selection{background:var(--accent-soft)}
+.tsbox,.authbox{box-shadow:0 8px 30px rgba(0,0,0,.25)!important;border-radius:14px!important}
+.toast{border-radius:8px!important}
+/* the sign-in page: plain, same flat look */
+.authhero h2{font-weight:800!important;letter-spacing:-1px!important}
+@media (max-width:980px){
+  nav .navmore{display:none}
+  nav.open .navmore{display:block;grid-column:1/-1}
+  nav.open .navmore a{display:flex}
+  nav.open .navlinks{grid-template-columns:1fr!important}
+  nav.open a{min-height:44px!important}
+  .navmore>summary{min-height:44px}
+}

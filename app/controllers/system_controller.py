@@ -7,7 +7,7 @@ from flask import Blueprint
 from app.config import FFMPEG_BIN, MUSIC_DIR
 from app.http import register
 from app.models import Clip, Job, User, Video, ping
-from app.runtime import DASH, LANDING, MUSIC_EXT
+from app.runtime import ASSETS, DASH, LANDING, MUSIC_EXT
 from app.services import auth_service as auth
 from app.services import notify_service as notify
 from app.services.queue_service import busy
@@ -24,13 +24,40 @@ def h_healthz(h):
     h.send_json(200 if p["ok"] else 503, {"ok": bool(p["ok"])})
 
 
+def _ui_version() -> int:
+    """Changes whenever the dashboard page or any of its css/js files changes."""
+    try:
+        return int(max([DASH.stat().st_mtime] + [f.stat().st_mtime for f in ASSETS.rglob("*") if f.is_file()]))
+    except OSError:
+        return 0
+
+
 def h_ui_version(h):
-    """The dashboard page asks this every few seconds and reloads itself when the file changed."""
-    h.send_json(200, {"v": int(DASH.stat().st_mtime)})
+    """The dashboard page asks this every few seconds and reloads itself when something changed."""
+    h.send_json(200, {"v": _ui_version()})
+
+
+ASSET_TYPES = {".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".woff2": "font/woff2"}
+
+
+def h_asset(h, kind, name):
+    """A css / js file of the dashboard. The page asks for it with ?v=<version>, so a browser keeps it until the version changes."""
+    f = (ASSETS / kind / name).resolve()
+    if ASSETS.resolve() not in f.parents or not f.is_file() or f.suffix not in ASSET_TYPES:
+        return h.send_json(404, {"error": "Not found"})
+    body = f.read_bytes()
+    h.send_response(200)
+    h.send_header("Cache-Control", "public, max-age=31536000, immutable" if h.q.get("v") else "no-cache")
+    h.send_header("Content-Type", ASSET_TYPES[f.suffix])
+    h.send_header("Content-Length", str(len(body)))
+    h.end_headers()
+    h.wfile.write(body)
 
 
 def _page(h, path: Path) -> None:
     body = path.read_bytes()
+    if path == DASH:
+        body = body.replace(b"__V__", str(_ui_version()).encode())       # the css/js links carry the version
     h.send_response(200)
     h.send_header("Cache-Control", "no-store")
     h.send_header("Content-Type", "text/html; charset=utf-8")
@@ -80,6 +107,7 @@ ROUTES = [
     (r"/", "GET", h_index),
     (r"/app", "GET", h_app),
     (r"/healthz", "GET", h_healthz),
+    (r"/assets/(css|js)/([\w.-]+)", "GET", h_asset),
     (r"/api/ui-version", "GET", h_ui_version),
     (r"/api/health", "GET", h_health),
     (r"/api/stats", "GET", h_stats),
