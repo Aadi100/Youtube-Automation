@@ -452,6 +452,11 @@ def main():
                                           min_seconds=15, max_seconds=58, game=game, creator=creator)
             if not found:
                 raise SystemExit("No new clips found.")
+        else:
+            found = discover_and_download(count=a.count, hours=a.hours, source=a.source,
+                                          min_seconds=15, max_seconds=60, game=game, creator=creator)
+            if not found:
+                raise SystemExit("No new clips found.")
         _bill_finding(found, a.mode, own=bool(a.clip_file or a.url))        # what this run used besides AI: finding the clip (and the YouTube extra)
         _bill_trend(a.mode)                                                   # Trending mode, when it was used
         if creator and a.game == "auto" and found and found[0].get("game_name"):
@@ -462,10 +467,6 @@ def main():
                                      c["streamer"], c["title"], a.audio_mode, [c["clip_id"]],
                                      game=game, credits=[credit_for(c)], hook=c.get("hook", ""), context=c.get("context", ""))
         else:
-            found = discover_and_download(count=a.count, hours=a.hours, source=a.source,
-                                          min_seconds=15, max_seconds=60, game=game, creator=creator)
-            if not found:
-                raise SystemExit("No new clips found.")
             clips = [{**c, "path": Path(c["path"])} for c in found]
             out = run_compilation_pipeline(clips, a.title, audio_mode=a.audio_mode,
                                            target_minutes=a.target_minutes, game=game)
