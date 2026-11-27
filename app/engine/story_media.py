@@ -39,7 +39,16 @@ def keyframe_prompt(scene: Dict, script: Dict) -> str:
     who = "; ".join(f"{chars[i]['name']}: {chars[i]['look']}" for i in scene.get("characters") or [] if i in chars)
     st = SS.style(script.get("style"))[2]
     return (f"{scene['visual']}. " + (f"Characters (keep their look exactly): {who}. " if who else "") + f"Style: {st}. Vertical 9:16 composition, one clear focal point, "
-            "no text, no captions, no watermark, no logos.")[:1800]
+            "Family-friendly, wholesome, fully clothed characters, safe for all ages. No text, no captions, no watermark, no logos.")[:1800]
+
+
+_RISKY = re.compile(r"\b(nud\w*|naked|sexy|sexual\w*|seduc\w*|erotic|lingerie|underwear|bikini|topless|bare|undress\w*|strip\w*|breasts?|cleavage|thigh\w*|buttocks?|lust\w*|kiss\w*|beds?|bedroom|bath\w*|shower\w*|blood\w*|gore|gory|corpse|dead body|bleed\w*|wound\w*|torture\w*|kill\w*|murder\w*|stab\w*|gun\w*|weapon\w*)\b", re.I)
+
+
+def soften(prompt: str) -> str:
+    """The same scene with the words that picture filters often mistake for adult or violent content taken out."""
+    t = _RISKY.sub("", prompt)
+    return re.sub(r"\s{2,}", " ", re.sub(r"\s+([.,;:])", r"\1", t)).strip()
 
 
 def _placeholder(scene: Dict, out: Path) -> Path:
@@ -59,7 +68,13 @@ def make_keyframe(scene: Dict, script: Dict, out: Path) -> Tuple[Optional[Path],
     from app.engine import thumb_best
     if not thumb_best.cloudflare_ready():
         return _placeholder(scene, out), "The picture AI (Cloudflare) is not set up, so a plain card was used."
-    raw, why = thumb_best._request(keyframe_prompt(scene, script))
+    prompt = keyframe_prompt(scene, script)
+    raw, why = thumb_best._request(prompt)
+    if raw is None and "nsfw" in (why or "").lower():                # a false alarm of the filter: say it again without the risky words, then very plainly
+        raw, why = thumb_best._request(soften(prompt))
+        if raw is None and "nsfw" in (why or "").lower():
+            raw, why = thumb_best._request(f"{SS.style(script.get('style'))[2]}. A calm, wholesome, family-friendly illustration for a story: "
+                                           f"{soften(scene.get('visual') or '')[:300]}. Everyone fully clothed, no text, vertical 9:16.")
     if raw is None:
         return None, why
     try:
