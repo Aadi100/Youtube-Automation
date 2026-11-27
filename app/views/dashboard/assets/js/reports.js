@@ -3,7 +3,7 @@
 /* ------------------------------------------------------------ reports (owner) */
 async function reports() {
   let days = 7;
-  $("#main").innerHTML = `<h1>Reports</h1><div class="toolbar"><label style="margin:0">Period</label>
+  $("#main").innerHTML = `<h1>Tokens and usage</h1>${usageTabs("reports")}<div class="toolbar"><label style="margin:0">Period</label>
       <select id="rdays">${[[1, "Last 24 hours"], [7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"]].map(([v, l]) => `<option value="${v}" ${v === days ? "selected" : ""}>${l}</option>`).join("")}</select>
       <span class="grow"></span><a class="btn" id="rcsv" href="#">Download CSV</a></div>
     <div class="kpis" id="rkpi"></div>

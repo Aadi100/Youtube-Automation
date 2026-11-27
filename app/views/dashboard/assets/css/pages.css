@@ -48,6 +48,7 @@ a.kpi:hover{transform:translateY(-2px);border-color:var(--panel3);text-decoratio
 .stparts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
 .strcpt{margin-top:12px;max-width:380px;border:1px dashed var(--line,#8886);border-radius:8px;padding:10px 14px}.strcpt table{width:100%;margin-top:6px}.strcpt td:last-child{text-align:right}.strcpt tr.sep td{border-top:1px dashed var(--line,#8886);padding-top:6px}
 .stth{position:relative}.stredo{position:absolute;right:4px;top:4px;padding:0 6px;line-height:20px;min-width:0}
+.seg a.btn{border:0;background:transparent;padding:6px 14px;box-shadow:none}.seg a.btn.on{background:var(--accent);color:var(--onaccent,#fff)}
 .stgenres{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
 .stg,.stidea{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--panel2);color:var(--text);height:auto}
 .stg span,.stidea span{font-size:12.5px;font-weight:400}.stg.on,.stidea.on{border-color:var(--accent);background:var(--accent-soft)}

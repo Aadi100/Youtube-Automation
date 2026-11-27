@@ -16,9 +16,9 @@ async function settings() {
      desc: "YouTube refuses many cloud servers (\"Sign in to confirm you're not a bot\"). The lasting fix is a proxy with a home-type address: paste it here, then press Test."},
     {id: "pricing", icon: "usage", title: "Pricing & costs",
      desc: "What the platforms charge you for each model, what one studio token is worth, what members pay, and what a video earns you. The same prices and costs as the Users and Reports pages."},
-    {id: "aud", icon: "globe", title: "Audience & clips",
-     desc: "The studio-wide defaults: what members get until they choose their own creator countries and languages, how live streams are watched, and the safety settings.",
-     keys: ["CLIP_COUNTRIES", "CLIP_LANGUAGES", "SAFE_MODE", "DEFAULT_AUDIO_MODE", "TTS_VOICE", "LIVE_WATCH_MINUTES", "LIVE_STREAMS", "SOUND_PEAKS", "AI_THUMBNAILS", "AI_IMAGE_PROVIDER", "THUMB_TEXT", "THUMB_REVIEW", "SAFETY_AI_FRAMES", "SAFETY_AI_WIDTH", "SAFETY_FINAL_AI"]},
+    {id: "aud", icon: "globe", title: "Studio defaults",
+     desc: "Defaults for everyone: the narrator and the creator's own audio, thumbnails, the safety settings and how live streams are watched. Each account can change its own narrator and audio in My preferences. The default creator countries and languages are in Creators &amp; languages.",
+     keys: ["SAFE_MODE", "DEFAULT_AUDIO_MODE", "TTS_VOICE", "LIVE_WATCH_MINUTES", "LIVE_STREAMS", "SOUND_PEAKS", "AI_THUMBNAILS", "AI_IMAGE_PROVIDER", "THUMB_TEXT", "THUMB_REVIEW", "SAFETY_AI_FRAMES", "SAFETY_AI_WIDTH", "SAFETY_FINAL_AI"]},
     {id: "clip", icon: "clips", title: "What to clip",
      desc: "Choose which kinds of moments the clipper looks for, add your own ideas, and say what it must never clip. The AI is given exactly these instructions."},
     {id: "audme", icon: "globe", title: "Creators & languages",
@@ -52,8 +52,7 @@ async function settings() {
            ["Research search (optional)", "Only for the clipping research.", ["RESEARCH_PROVIDER", "TAVILY_API_KEY", "BRAVE_API_KEY"], false],
            ["Members signing in with YouTube", "Google sign-in for members, and the daily upload allowance.", ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YT_DAILY_UPLOADS", "YT_DAILY_UNITS", "CONTACT_EMAIL"], false],
            ["Advanced: model names", "Leave these alone unless a model is retired.", ["GEMINI_MODEL", "DEEPSEEK_MODEL", "ANTHROPIC_MODEL", "ANTHROPIC_RESEARCH_MODEL", "ANTHROPIC_TITLE_MODEL", "LLM_SPLIT"], false]],
-    aud: [["Who the clips are from", "What members get until they choose their own.", ["CLIP_COUNTRIES", "CLIP_LANGUAGES"], true],
-          ["Voice and sound", "The narrator, the creator's own audio, and listening for loud moments.", ["DEFAULT_AUDIO_MODE", "TTS_VOICE", "SOUND_PEAKS"], true],
+    aud: [["Voice and sound", "The studio's narrator and audio choice, used by accounts that have not chosen their own (each account chooses in My preferences, and a single video on the Create page).", ["DEFAULT_AUDIO_MODE", "TTS_VOICE", "SOUND_PEAKS"], true],
           ["Thumbnails", "How the artwork is made.", ["AI_THUMBNAILS", "THUMB_PROMPT_AI", "THUMB_FACE", "AI_IMAGE_PROVIDER", "THUMB_TEXT", "THUMB_REVIEW"], true],
           ["Safety", "The safety check always runs. These only change how it looks.", ["SAFE_MODE", "SAFETY_AI_FRAMES", "SAFETY_AI_WIDTH", "SAFETY_FINAL_AI"], false],
           ["Live streams", "How live streams are watched.", ["LIVE_WATCH_MINUTES", "LIVE_STREAMS"], false]],
@@ -140,7 +139,8 @@ async function settings() {
   };
   $("#main").innerHTML = `<h1>Settings</h1><p class="lede">${SUBS.settings}</p>
     <div class="settings"><div class="stabs" id="stabs"></div><div id="spanes"></div></div>`;
-  const state = {tab: isOwner ? "conn" : "prefs"};
+  const want = location.hash.split("/")[2] || "";                  // #/settings/pricing opens that section
+  const state = {tab: SECTIONS.some(x => x.id === want) && (isOwner || ["prefs", "yt", "audme", "clip", "saver", "trend", "growth", "src", "music"].includes(want)) ? want : isOwner ? "conn" : "prefs"};
   const paintTabs = (s) => {
     let lastHead = -1;
     $("#stabs").innerHTML = SECTIONS.slice().sort((a, b) => (TABGROUP[a.id] ?? 1) - (TABGROUP[b.id] ?? 1)).map(sec => {
@@ -154,6 +154,9 @@ async function settings() {
       document.querySelectorAll(".spane").forEach(p => p.hidden = p.dataset.p !== state.tab);
     });
   };
+  const ownerCreators = s => `<h3 style="margin:26px 0 4px">Studio default for new accounts (owner)</h3><div class="help">What an account gets until it chooses its own creator countries and languages above. An account's own choice always wins.</div>
+    <div class="fields">${["CLIP_COUNTRIES", "CLIP_LANGUAGES"].filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>
+    <div class="savebar"><button class="pri" data-save>Save changes</button><span class="muted">Stored in the local .env file.</span></div>`;
   const saveAll = guard(async () => {
     const body = {}; document.querySelectorAll("#spanes input[data-k], #spanes select[data-k], #spanes textarea[data-k]").forEach(i => body[i.dataset.k] = i.value);
     await api("/api/settings", {method: "PUT", body}); toast("Settings saved"); loadS();
@@ -165,7 +168,7 @@ async function settings() {
     paintTabs(s);
     $("#spanes").innerHTML = SECTIONS.map(sec => `<div class="card spane" data-p="${sec.id}" ${state.tab === sec.id ? "" : "hidden"}>
       <h2>${svg(sec.icon).replace("<svg", '<svg width="18" height="18" style="stroke:currentColor;fill:none;stroke-width:1.8"')}${sec.title}</h2><p class="secdesc">${sec.desc}</p>
-      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "saver" ? `<div id="savercfg" class="muted">Loading…</div>` : sec.id === "growth" ? `<div id="growthcfg" class="muted">Loading…</div>` : sec.id === "trend" ? `<div id="trendcfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "airoute" ? `<div id="airoutecfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `${GROUPS[sec.id] || sec.id === "conn" ? groupedFields(sec, s) : `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>`}
+      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>${isOwner ? ownerCreators(s) : ""}` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "saver" ? `<div id="savercfg" class="muted">Loading…</div>` : sec.id === "growth" ? `<div id="growthcfg" class="muted">Loading…</div>` : sec.id === "trend" ? `<div id="trendcfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "airoute" ? `<div id="airoutecfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `${GROUPS[sec.id] || sec.id === "conn" ? groupedFields(sec, s) : `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>`}
         <div class="savebar"><button class="pri" data-save>Save changes</button>${sec.id === "mail" ? `<button id="mt">Send test email</button><span class="muted" id="mres"></span>` : ""}
         <span class="muted">Stored in the local .env file.</span></div>`
       : `<div class="row"><input type="file" id="mf" accept=".mp3,.wav,.m4a,.ogg,.flac" class="grow"><button id="mu" class="pri">Upload track</button></div><div id="mlist" style="margin-top:14px"></div>`}
@@ -509,9 +512,9 @@ async function settings() {
     });
     loadSpikes();
     if (ME.role === "owner") {                                  // the owner's rules for story videos
-      box.insertAdjacentHTML("beforeend", `<h2 style="margin-top:26px">Story video rules (owner)</h2><div id="storyrules" class="muted">Loading…</div>`);
+      ($("#pricecfg") ? $("#pricecfg").parentElement : box).insertAdjacentHTML("beforeend", `<h2 style="margin-top:26px">Story video rules</h2><div id="storyrules" class="muted">Loading…</div>`);   // next to the prices, so the owner sets up story videos in one place
       const st = await api("/api/stories/settings"), rb = $("#storyrules"); rb.className = "";
-      rb.innerHTML = `<div class="audnote">AI video (the characters really move) costs real money for every second of video, so it is off for members until you switch it on. Set the price a member pays for it in Settings → Pricing (Story video).</div>
+      rb.innerHTML = `<div class="audnote">AI video (the characters really move) costs real money for every second of video, so it is off for members until you switch it on. The story video prices are in the price list above (the rows that start with "Story video").</div>
         <div class="row" style="gap:14px;align-items:flex-start;margin:12px 0"><label class="switch"><input type="checkbox" id="sr_vid" ${st.members_video ? "checked" : ""}><span></span></label><div><b>Let members use AI video</b><div class="muted">You can always use it yourself.</div></div></div>
         <div class="pmgrid"><div><label>Story videos a member may make a day</label><input type="number" id="sr_day" min="0" max="50" value="${st.daily_limit}"></div><div><label>AI video scenes a member may make a day</label><input type="number" id="sr_vpd" min="0" max="200" value="${st.video_per_day}"></div>
           <div><label>Most AI video scenes in one story</label><input type="number" id="sr_max" min="0" max="12" value="${st.max_video_scenes}"></div>
@@ -593,12 +596,10 @@ async function settings() {
     box.innerHTML = setup + (st.connected
       ? `<div class="row"><span class="chip live">Connected</span><b>${esc(st.channel_title)}</b><span class="muted">${esc(st.email || "")}</span></div>
          <p class="muted">Your videos are uploaded to this channel as <b>Unlisted</b> first. You approve them, and then they go Public.${st.queued_uploads ? ` ${st.queued_uploads} video(s) are waiting for an upload slot.` : ""}</p>
-         <div class="row"><button class="dng" id="yt_off">Disconnect</button></div>`
+         <div class="row"><a class="btn" href="#/profile/connections">Disconnect in My profile</a></div>`
       : st.configured ? `<p class="muted" style="margin-top:0">Not connected yet. You will sign in with Google and allow the studio to upload videos to your channel. You can disconnect at any time.</p>
-         <div class="row"><button class="pri" id="yt_on">Connect YouTube</button></div>`
+         <div class="row"><a class="btn pri" href="#/profile/connections">Connect in My profile</a></div>`
       : `<p class="muted" style="margin-top:0">The owner has not finished setting up YouTube sign-in yet.</p>`) + quota;
-    if ($("#yt_on")) $("#yt_on").onclick = guard(async () => { const r = await api("/api/youtube/connect", {method: "POST"}); location.href = r.url; });
-    if ($("#yt_off")) $("#yt_off").onclick = guard(async () => { if (!confirm("Disconnect this channel? Videos stop uploading until you connect again.")) return; await api("/api/youtube/disconnect", {method: "POST"}); toast("Disconnected"); loadYt(); });
   });
   const loadPrefs = guard(async () => {
     const box = $("#prefscfg"); if (!box) return;
@@ -622,16 +623,13 @@ async function settings() {
         <div><label>Accent colour</label><input type="color" id="pf_acol" value="${b.accent}" style="width:70px;height:36px;padding:0"></div>
         <div class="full"><label>My logo (top right of every thumbnail)</label><div class="row">${b.has_logo ? `<img src="/api/brand/logo?t=${Date.now()}" alt="Logo" style="height:42px;background:#888;border-radius:8px;padding:4px">` : '<span class="muted">No logo yet</span>'}
           <button type="button" id="pf_logo">${b.has_logo ? "Change logo" : "Upload a logo"}</button>${b.has_logo ? '<button type="button" class="dng" id="pf_logo_rm">Remove</button>' : ""}<input type="file" id="pf_logof" accept="image/png,image/jpeg" hidden></div><div class="help">A PNG with a transparent background looks best.</div></div>
-        <div class="full"><label>Send approval emails to</label><input id="pf_mail" type="email" value="${esc(p.notify_to || "")}" placeholder="${esc(ME.email)}"><div class="help">Leave empty to use your account email (${esc(ME.email)}).</div></div></div>
+        </div>
       <div class="row" style="margin-top:8px"><button type="button" id="pf_listen">▶ Listen to the chosen voice</button></div>
       <div class="savebar"><button class="pri" id="pf_save">Save</button><span class="muted">Used for your next video.</span></div>
-      <h3 style="margin:26px 0 4px">Change password</h3>
-      <div class="fields"><div><label>Current password</label><input id="pw_old" type="password" autocomplete="current-password"></div>
-        <div><label>New password (8+ characters)</label><input id="pw_new" type="password" autocomplete="new-password"></div></div>
-      <div class="row" style="margin-top:12px"><button id="pw_save">Change password</button></div>`;
+      <p class="help" style="margin-top:22px">Password, signed-in devices, notifications and your YouTube channel are in <a href="#/profile/security">My profile</a>.</p>`;
     $("#pf_listen").onclick = () => { const v = $("#pf_voice").value; if (!v || v === "random") { toast("Pick one voice to listen to it"); return; } new Audio("/api/voices/preview?voice=" + encodeURIComponent(v)).play().catch(() => toast("Could not play the sample", true)); };
     $("#pf_save").onclick = guard(async () => {
-      const r = await api("/api/prefs", {method: "PUT", body: {tts_voice: $("#pf_voice").value, default_audio: $("#pf_audio").value, hold_uploads: $("#pf_hold").value === "1", notify_to: $("#pf_mail").value}});
+      const r = await api("/api/prefs", {method: "PUT", body: {tts_voice: $("#pf_voice").value, default_audio: $("#pf_audio").value, hold_uploads: $("#pf_hold").value === "1"}});
       ME = r.user;
       await api("/api/brand", {method: "PUT", body: {style: $("#pf_tstyle").value, font: $("#pf_tfont").value, text: $("#pf_tcol").value, accent: $("#pf_acol").value, pictures: $("#pf_tpics").value, tier: $("#pf_ttier").value, face: $("#pf_tface").value}});
       toast("Preferences saved");
@@ -639,10 +637,6 @@ async function settings() {
     $("#pf_logo").onclick = () => $("#pf_logof").click();
     $("#pf_logof").onchange = guard(async () => { const f = $("#pf_logof").files[0]; if (!f) return; await api("/api/brand/logo", {method: "POST", body: f, raw: true}); toast("Logo saved"); loadPrefs(); });
     if ($("#pf_logo_rm")) $("#pf_logo_rm").onclick = guard(async () => { await api("/api/brand/logo", {method: "DELETE"}); toast("Logo removed"); loadPrefs(); });
-    $("#pw_save").onclick = guard(async () => {
-      const r = await api("/api/auth/password", {method: "POST", body: {old: $("#pw_old").value, new: $("#pw_new").value}});
-      $("#pw_old").value = $("#pw_new").value = ""; toast(r.message);
-    });
   });
   const loadClipCfg = guard(async () => {
     const d = await api("/api/clipping"), c = d.config, box = $("#clipcfg"); if (!box) return;

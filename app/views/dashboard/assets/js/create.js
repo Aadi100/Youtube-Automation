@@ -223,9 +223,9 @@ async function create() {
   $("#cancel").onclick = guard(async () => { await api(`/api/jobs/${activeJob}/cancel`, {method: "POST"}); toast("Cancelling…"); });
   const refresh = guard(async () => {
     const jobs = await api("/api/jobs");
-    $("#jobs").innerHTML = jobs.length ? `<table><tr><th>Started</th><th>Type</th><th>How</th><th>Status</th><th>Result</th></tr>${jobs.map(j => `
+    $("#jobs").innerHTML = jobs.length ? `<table><tr><th>Started</th><th>Type</th><th>How</th><th>Status</th><th>Result</th></tr>${jobs.slice(0, 5).map(j => `
       <tr class="click" data-j="${j.id}"><td>${when(j.created_at)}</td><td>${esc(j.mode.replace("auto-", ""))}</td><td>${j.source === "n8n" ? "scheduled" : "by hand"}</td><td>${badge(j.status)}</td>
-      <td class="muted">${esc(j.error || (j.video_id ? "video saved" : ""))}</td></tr>`).join("")}</table>` : emptyState("film", "No runs yet", "Your runs will be listed here.");
+      <td class="muted">${esc(j.error || (j.video_id ? "video saved" : ""))}</td></tr>`).join("")}</table>${jobs.length > 5 ? `<p class="muted" style="margin:10px 0 0">The last 5 runs. <a href="#/schedule">See every run in Schedule</a>.</p>` : ""}` : emptyState("film", "No runs yet", "Your runs will be listed here.");
     document.querySelectorAll("#jobs tr[data-j]").forEach(tr => tr.onclick = () => { activeJob = tr.dataset.j; refresh(); });
     const running = jobs.find(j => j.status === "running");
     $("#go").disabled = !!running; $("#hint").textContent = running ? "Something is already rendering." : "";

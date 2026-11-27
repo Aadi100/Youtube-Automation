@@ -1,9 +1,15 @@
 /* Tokens and usage. */
 "use strict";
 /* ------------------------------------------------------------ my usage (every account) */
+/* The owner has two views of the same numbers: what they used themselves, and what the whole studio used. One page, two tabs. */
+function usageTabs(active) {
+  if (!ME || ME.role !== "owner") return "";
+  return `<div class="seg" style="margin:6px 0 14px"><a class="btn ${active === "usage" ? "on" : ""}" href="#/usage">My usage</a><a class="btn ${active === "reports" ? "on" : ""}" href="#/reports">Whole studio (reports)</a></div>`;
+}
+
 async function usage() {
   let days = 30;
-  $("#main").innerHTML = `<h1>Tokens and usage</h1><div class="toolbar"><label style="margin:0">Period</label>
+  $("#main").innerHTML = `<h1>Tokens and usage</h1>${usageTabs("usage")}<div class="toolbar"><label style="margin:0">Period</label>
       <select id="mdays">${[[1, "Last 24 hours"], [7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"]].map(([v, l]) => `<option value="${v}" ${v === days ? "selected" : ""}>${l}</option>`).join("")}</select>
       <span class="grow"></span><a class="btn" id="mcsv" href="#">Download CSV</a></div>
     <div class="kpis" id="mkpi"></div>

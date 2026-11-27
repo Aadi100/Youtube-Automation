@@ -31,7 +31,7 @@ function buildShell() {
   const NAV = [["", [["overview", "Home"], ["create", "Make a video"], ["stories", "Story videos"], ["videos", "My videos"], ["games", "Games"], ["schedule", "Schedule"]]],
                ["More tools", [["editor", "Video editor"], ["projects", "Edit projects"], ["permissions", "Creator permissions"], ["clips", "Source clips"], ["research", "Find ideas"], ["social", "Other platforms"]].concat(owner ? [["reactions", "Reaction Lab"], ["lab", "Learning Lab"]] : []), "fold"],
                ["Account", [["usage", "Tokens and usage"], ["settings", "Settings"], ["profile", "My profile"], ["notifications", "Notifications"]]]]
-    .concat(owner ? [["Owner", [["users", "Users"], ["reports", "Reports"]]]] : []);
+    .concat(owner ? [["Owner", [["users", "Users"]]]] : []);
   const navLink = ([r, t]) => `<a href="#/${r}" data-r="${r}">${svg(r)}<span>${t}</span>${r === "reactions" || r === "lab" ? `<i class="betatag">BETA</i>` : ""}</a>`;
   const navHtml = NAV.map(([g, items, fold]) => fold
     ? `<details class="navmore" id="navmore"><summary>${svg("more")}<span>${g}</span></summary>${items.map(navLink).join("")}</details>`
@@ -101,7 +101,7 @@ async function checkUiVersion() {
 function nav() {
   stopTimer();
   const r = (location.hash.replace("#/", "") || "overview").split("/")[0];
-  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", a.dataset.r === r));
+  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", a.dataset.r === (r === "reports" ? "usage" : r)));
   const fold = document.getElementById("navmore"); if (fold && fold.querySelector(`a[data-r="${r}"]`)) fold.open = true;
   const run = (routes[r] || overview)();
   if (r === "progress") setTimeout(() => openProgress(), 400);
