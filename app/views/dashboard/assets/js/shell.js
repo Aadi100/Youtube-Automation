@@ -41,12 +41,14 @@ function buildShell() {
     `<div class="navlinks">` + navHtml + `</div>` +
     `<div class="sp"></div><div class="sidefoot"><div class="pill" id="jobpill"><span class="d"></span><span id="jobtxt">Idle</span></div>
      <button id="themebtn" title="Switch light / dark">${svg("moon")}<span>Light / dark</span></button>
+     ${owner ? "" : `<button id="tourbtn" title="A short walk through the studio">${svg("overview")}<span>Take the tour</span></button>`}
      <div class="userchip">${avatarMini(initials)}<div class="who"><b>${esc(ME.name)}</b><span id="whoSub">${owner ? "Owner" : "Member"}</span></div><button id="logoutbtn" title="Log out">${svg("logout")}</button></div></div>`;
   $("#bell").onclick = toggleNotifPanel; setBadge(NOTIF.unread);
   const navEl = $("#nav"), mb = $("#menubtn");
   const closeMenu = () => { navEl.classList.remove("open"); mb.setAttribute("aria-expanded", "false"); };
   mb.onclick = () => { const o = navEl.classList.toggle("open"); mb.setAttribute("aria-expanded", o ? "true" : "false"); };
   navEl.addEventListener("click", e => { if (e.target.closest("a")) closeMenu(); });
+  if ($("#tourbtn")) $("#tourbtn").onclick = () => { closeMenu(); startTour(true); };
   window.addEventListener("hashchange", closeMenu);
   $("#jobpill").style.cursor = "pointer"; $("#jobpill").title = "Click to see what is running"; $("#jobpill").onclick = () => openProgress();
   $("#themebtn").onclick = () => {

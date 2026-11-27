@@ -1,7 +1,35 @@
 /* Reports (owner). */
 "use strict";
 /* ------------------------------------------------------------ reports (owner) */
+async function storyReport() {
+  let days = 30;
+  const usd = n => (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(n !== 0 && Math.abs(n) < 1 ? 3 : 2), num = n => Number(n).toLocaleString();
+  $("#main").innerHTML = `<h1>Tokens and usage</h1>${usageTabs("stories")}<div class="toolbar"><label style="margin:0">Period</label>
+      <select id="sdays">${[[7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"]].map(([v, l]) => `<option value="${v}" ${v === days ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    <div class="kpis" id="skpi"></div>
+    <section class="card" style="margin-bottom:18px"><div class="sechead"><h2>Per day</h2><span class="muted">Stories made that day (UTC). Tokens charged against what the services cost you.</span></div><div id="sday"></div></section>
+    <section class="card" style="margin-bottom:18px"><div class="sechead"><h2>By genre</h2></div><div id="sgen"></div></section>
+    <section class="card"><div class="sechead"><h2>By member</h2></div><div id="smem"></div></section>`;
+  const load = guard(async () => {
+    days = +$("#sdays").value;
+    const r = await api(`/api/admin/story-report?days=${days}`), t = r.total;
+    const k = (ic, tone, n, l, sub) => `<div class="card kpi"><span class="ic ${tone}">${svg(ic)}</span><div><div class="n">${n}</div><div class="l">${l}${sub ? `<br><span class="muted">${sub}</span>` : ""}</div></div></div>`;
+    $("#skpi").innerHTML = k("film", "info", num(t.stories), "Stories", `${num(t.parts)} parts, ${num(t.scenes)} scenes`) + k("check", "ok", `${num(t.charged_tokens)}`, "Tokens charged", `worth ${usd(t.revenue_usd)} at $${r.token_usd} each`) +
+      k("alert", "warn", usd(t.real_usd), "Your real cost", "pictures, AI video and the emotional voice, from your rates") + k("globeok", t.net_usd >= 0 ? "ok" : "bad", usd(t.net_usd), "Left over", "charged minus real cost") +
+      k("film", "info", num(t.ai_video), "AI video scenes", `${num(t.camera)} with camera movement`) + k("inbox", t.failed ? "warn" : "ok", num(t.failed), "Parts that failed", "nobody charged");
+    const row = (name, v, w) => `<tr><td>${name}</td><td>${num(v.stories)}</td><td>${num(v.scenes)}</td><td>${num(v.ai_video)}</td><td>${num(v.charged_tokens)}</td><td>${usd(v.revenue_usd)}</td><td>${usd(v.real_usd)}</td><td style="color:var(--${v.net_usd >= 0 ? "ok" : "bad"})">${usd(v.net_usd)}</td></tr>`;
+    const head = first => `<tr><th>${first}</th><th>Stories</th><th>Scenes</th><th>AI video</th><th>Tokens charged</th><th>Worth</th><th>Real cost</th><th>Left over</th></tr>`;
+    const tbl = (first, rows) => rows.length ? `<table>${head(first)}${rows.join("")}</table>` : `<p class="muted">No story videos in this period.</p>`;
+    $("#sday").innerHTML = tbl("Day", r.per_day.slice().reverse().map(d => row(d.day, d)));
+    $("#sgen").innerHTML = tbl("Genre", r.per_genre.map(d => row(esc(d.genre), d)));
+    $("#smem").innerHTML = tbl("Member", r.per_member.map(d => row(`${esc(d.name)}${d.role === "owner" ? ' <span class="muted">(owner, free)</span>' : ""}`, d)));
+  });
+  $("#sdays").onchange = load;
+  await load();
+}
+
 async function reports() {
+  if (location.hash.split("/")[2] === "stories") return storyReport();
   let days = 7;
   $("#main").innerHTML = `<h1>Tokens and usage</h1>${usageTabs("reports")}<div class="toolbar"><label style="margin:0">Period</label>
       <select id="rdays">${[[1, "Last 24 hours"], [7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"]].map(([v, l]) => `<option value="${v}" ${v === days ? "selected" : ""}>${l}</option>`).join("")}</select>
@@ -57,9 +85,9 @@ async function reports() {
     document.querySelectorAll("[data-rv]").forEach(a => a.onclick = e => { e.preventDefault(); openVideo(a.dataset.rv); });
     const rt = r.rates;
     $("#rrates").innerHTML = `<div class="fields">${[["token_usd", "One token is worth, $"], ["gemini_in_per_1m", "Gemini input, $ per 1M tokens"], ["gemini_out_per_1m", "Gemini output, $ per 1M tokens"], ["claude_search_usd", "Claude web search, $ per search"], ["claude_in_per_1m", "Claude input, $ per 1M tokens"], ["claude_out_per_1m", "Claude output, $ per 1M tokens"], ["deepseek_in_per_1m", "DeepSeek input, $ per 1M tokens"],
-        ["deepseek_out_per_1m", "DeepSeek output, $ per 1M tokens"], ["image_gemini_usd", "Gemini image, $ each"], ["image_flux_usd", "Best thumbnail (FLUX), $ each"], ["image_free_usd", "Free image, $ each"]].map(([k, l]) =>
+        ["deepseek_out_per_1m", "DeepSeek output, $ per 1M tokens"], ["image_gemini_usd", "Gemini image, $ each"], ["image_flux_usd", "Best thumbnail (FLUX), $ each"], ["image_free_usd", "Free image, $ each"], ["story_video_usd", "Story: one AI video scene, $ each"], ["azure_tts_usd_per_1k", "Story narrator with feelings (Azure), $ per 1,000 characters"]].map(([k, l]) =>
         `<div><label>${l}</label><input type="number" min="0" step="0.0001" data-rc="${k}" value="${rt[k]}"></div>`).join("")}</div>
-      <div class="row" style="margin-top:12px"><button class="pri" id="rc_save">Save</button><span class="muted">Free-tier keys cost $0. Change the token prices on the Users page.</span></div>`;
+      <div class="row" style="margin-top:12px"><button class="pri" id="rc_save">Save</button><span class="muted">Free-tier keys cost $0. Change the token prices in Settings → Pricing &amp; costs.</span></div>`;
     $("#rc_save").onclick = guard(async () => { const body = {}; document.querySelectorAll("[data-rc]").forEach(i => body[i.dataset.rc] = i.value); await api("/api/admin/costs", {method: "PUT", body}); toast("Saved"); load(); });
   });
   $("#rdays").onchange = load;

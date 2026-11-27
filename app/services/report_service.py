@@ -8,7 +8,7 @@ import io
 from datetime import timedelta
 from typing import Dict, List
 
-from app.models import Job, TokenLedger, UsageEvent, User, Video, now, oid
+from app.models import Job, StoryJob, TokenLedger, UsageEvent, User, Video, now, oid
 from app.services import token_service as tk
 
 SERVICES = {
@@ -25,7 +25,7 @@ SERVICES = {
     ("scan", "finder"): ("Clip Finder scans", "scans"), ("edit", "editor"): ("Editor renders", "renders"), ("research", "run"): ("Research runs", "runs"),
     ("storage", "disk"): ("Extra storage", "GB-days"), ("social", "caption"): ("AI captions for other platforms", "captions"),
     ("story", "script"): ("Story scripts", "scripts"), ("story", "video"): ("Story scenes made by AI video", "scenes"), ("story", "motion"): ("Story scenes with camera movement", "scenes"),
-    ("story", "captions"): ("Story captions", "parts"), ("story", "render"): ("Story finished video", "parts"), ("story", "redo"): ("Story scenes made again", "scenes"), ("tts", "azure"): ("Narrator voice (Azure, with emotion)", "characters"),
+    ("story", "captions"): ("Story captions", "parts"), ("story", "music"): ("Story background music", "parts"), ("story", "series"): ("Story extra parts written", "parts"), ("story", "redo_video"): ("Story AI video scenes made again", "scenes"), ("story", "render"): ("Story finished video", "parts"), ("story", "redo"): ("Story scenes made again", "scenes"), ("tts", "azure"): ("Narrator voice (Azure, with emotion)", "characters"),
 }
 
 
@@ -258,6 +258,52 @@ def build_member_csv(uid: str, days: int) -> str:
 
 
 KIND_LABEL = {"lowres": "Pictures read at low resolution", "cache": "Answers reused (the same question was never paid for twice)", "budget": "Stopped by a video's token budget", "local": "Done by code instead of AI"}
+
+
+def story_report(days: int = 30) -> Dict:
+    """Story videos only: what members were charged in tokens against what it really cost you in dollars, per day, per genre and per member."""
+    days = min(365, max(1, int(days)))
+    since = now() - timedelta(days=days)
+    rates = tk.real_costs()
+    tusd = rates["token_usd"]
+    jobs = list(StoryJob.find_all(created_at__gte=since))
+    by_id = {str(j["_id"]): j for j in jobs}
+    usd_of_job: Dict[str, float] = {}
+    pipe = [{"$match": {"$or": [{"task": "story"}, {"kind": "story"}]}},
+            {"$group": {"_id": {"j": "$video_id", "k": "$kind", "p": "$provider"}, "units": {"$sum": "$units"}, "tin": {"$sum": "$tokens_in"}, "tout": {"$sum": "$tokens_out"}}}]
+    for r in (UsageEvent.objects(t__gte=since, ok=True, video_id__in=list(by_id)).aggregate(pipe) if by_id else []):
+        g = r["_id"]
+        usd_of_job[g["j"]] = usd_of_job.get(g["j"], 0.0) + _usd(g["k"], g.get("p"), r["tin"], r["tout"], r["units"], rates)
+    users = {str(u["_id"]): u for u in User.find_all(id__in=[oid(x) for x in {j.get("user_id") for j in jobs} if x])}
+    from app.engine import story_trends as ST
+    gname = {g[0]: g[1] for g in ST.GENRES}
+
+    def blank():
+        return {"stories": 0, "parts": 0, "scenes": 0, "ai_video": 0, "camera": 0, "failed": 0, "charged_tokens": 0, "real_usd": 0.0}
+    per_day, per_genre, per_member, tot = {}, {}, {}, blank()
+    for j in jobs:
+        sc = j.get("script") or {}
+        first = int(((sc.get("series") or {}).get("part")) or 1) == 1
+        cnt = j.get("counts") or {}
+        charged = int(j.get("charged") or 0) + int(round(float((j.get("receipt") or {}).get("later") or 0)))
+        usd = usd_of_job.get(str(j["_id"]), 0.0)
+        key_d = j["created_at"].strftime("%Y-%m-%d")
+        gid = sc.get("genre") or ""
+        for bucket, key in ((per_day, key_d), (per_genre, gname.get(gid, gid or "(unknown)")), (per_member, str(j.get("user_id") or "")), (None, None)):
+            b = tot if bucket is None else bucket.setdefault(key, blank())
+            b["stories"] += 1 if first else 0
+            b["parts"] += 1
+            b["scenes"] += len(sc.get("scenes") or []) if j.get("status") == "done" else 0
+            b["ai_video"] += int(cnt.get("video", 0)); b["camera"] += int(cnt.get("motion", 0))
+            b["failed"] += 1 if j.get("status") == "error" else 0
+            b["charged_tokens"] += charged
+            b["real_usd"] += usd
+    def fin(d):
+        d["real_usd"] = round(d["real_usd"], 4); d["revenue_usd"] = round(d["charged_tokens"] * tusd, 4); d["net_usd"] = round(d["revenue_usd"] - d["real_usd"], 4); return d
+    return {"days": days, "token_usd": tusd, "total": fin(tot),
+            "per_day": [{"day": k, **fin(v)} for k, v in sorted(per_day.items())],
+            "per_genre": sorted([{"genre": k, **fin(v)} for k, v in per_genre.items()], key=lambda x: -x["charged_tokens"]),
+            "per_member": sorted([{**_name(users, k), **fin(v)} for k, v in per_member.items()], key=lambda x: -x["charged_tokens"])}
 
 
 def ai_savings(days: int = 7) -> Dict:

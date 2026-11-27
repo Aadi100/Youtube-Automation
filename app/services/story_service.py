@@ -84,17 +84,37 @@ def providers(is_owner: bool) -> List[Dict]:
     return out
 
 
-def estimate(script: Dict, provider: str, is_owner: bool, parts: int = 1, captions: bool = True, finish: str = "open") -> Dict:
+def music_available() -> bool:
+    """True when the owner has put at least one track in the studio's music library (story videos can then have background music)."""
+    from app.services import editor_service
+    try:
+        return bool(editor_service.music_library())
+    except Exception:
+        return False
+
+
+def spent_today(uid) -> int:
+    """Tokens a member spent (or has held) on story videos in the last 24 hours."""
+    day = now() - timedelta(hours=24)
+    return sum(int(j.get("charged") or 0) if j.get("status") == "done" else int(j.get("reserved") or 0)
+               for j in StoryJob.find_all(user_id=str(uid), created_at__gte=day, status__in=["queued", "running", "done"]))
+
+
+def estimate(script: Dict, provider: str, is_owner: bool, parts: int = 1, captions: bool = True, finish: str = "open", music: bool = True) -> Dict:
     p = tokens.pricing()
+    st = settings()
     n = len(script["scenes"])
-    vid = len(SS.key_scenes(script, int(settings()["max_video_scenes"]))) if provider == "veo" else 0
+    keys = set(SS.key_scenes(script, int(st["max_video_scenes"]))) if provider == "veo" else set()
+    vid = len(keys)
     mot = n - vid
-    chars = sum(len(s["narration"]) for s in script["scenes"])
     voice = p["tts_azure_per_1k_chars"] if SM.narrator_engine() == "azure" else p["tts_per_1k_chars"]
-    total = n * p["image_flux"] + vid * p["story_scene_video"] + mot * p["story_scene_motion"] + chars / 1000.0 * voice + (p["story_captions"] if captions else 0) + (p["story_render"] if finish == "render" else 0)
-    disc = int(settings()["parts_discount"]) if parts > 1 else 0          # a story told in several parts costs a little less for each part
-    total *= (100 - disc) / 100.0
-    return {"scenes": n, "pictures": n, "video_scenes": vid, "motion_scenes": mot, "discount": disc, "tokens": 0 if is_owner else max(1, math.ceil(total - 1e-9)), "free": is_owner}
+    scene_cost = [p["image_flux"] + (p["story_scene_video"] if i in keys else p["story_scene_motion"]) + len(sc["narration"]) / 1000.0 * voice for i, sc in enumerate(script["scenes"])]
+    extras = (p["story_captions"] if captions else 0) + (p["story_render"] if finish == "render" else 0) + (p["story_music"] if music and music_available() else 0)
+    disc = int(st["parts_discount"]) if parts > 1 else 0          # a story told in several parts costs a little less for each part
+    keep = (100 - disc) / 100.0
+    total = (sum(scene_cost) + extras) * keep
+    return {"scenes": n, "pictures": n, "video_scenes": vid, "motion_scenes": mot, "discount": disc, "per_scene": [round(c * keep, 2) for c in scene_cost],
+            "tokens": 0 if is_owner else max(1, math.ceil(total - 1e-9)), "free": is_owner}
 
 
 # ---------------------------------------------------------------- trends and the script
@@ -126,10 +146,16 @@ def make_script(uid, genre_id: str, premise: str = "", own_text: str = "", secon
             raise ValueError("Choose one of the ideas, or write a few words about the story you want.")
         parts = max(1, min(SS.MAX_PARTS, int(parts or 1)))
         if parts > 1:
+            pr = tokens.pricing()
+            extra = float(pr["story_series_extra"]) * (parts - 1)
+            need = math.ceil(float(pr["story_script"]) + extra - 1e-9)
+            if tokens._is_member(str(uid)) and tokens.balance(str(uid)) < need:
+                raise ValueError(f"Not enough tokens: writing {parts} parts costs about {need} and you have {tokens.balance(str(uid))}. Ask the owner for more, or write fewer parts.")
             scripts = SS.write_series(gd[1], premise, parts, seconds, style_id, genre_id)
             for x in scripts:
                 SS.auto_mark(x)
-            return {"script": scripts[0], "scripts": scripts, "charged": tokens.charge_action(str(uid), "story_script")}
+            charged = tokens.charge_action(str(uid), "story_script") + tokens.charge_small(str(uid), extra, "Story video: extra parts written", "story", "series", float(parts - 1))
+            return {"script": scripts[0], "scripts": scripts, "charged": charged}
         script = SS.write(gd[1], premise, seconds, style_id, genre_id)
     SS.auto_mark(script)
     charged = tokens.charge_action(str(uid), "story_script")
@@ -142,8 +168,8 @@ def _check_script(script) -> Dict:
     return s
 
 
-def start(uid, script: Dict, provider: str = "motion", voice: str = "", finish: str = "open", captions: bool = True) -> Dict:
-    return start_series(uid, [script], provider, voice, finish, captions)["jobs"][0]
+def start(uid, script: Dict, provider: str = "motion", voice: str = "", finish: str = "open", captions: bool = True, music: bool = True) -> Dict:
+    return start_series(uid, [script], provider, voice, finish, captions, music)["jobs"][0]
 
 
 def _first_parts(jobs: List[Dict]) -> int:
@@ -151,7 +177,7 @@ def _first_parts(jobs: List[Dict]) -> int:
     return sum(1 for j in jobs if int(((j.get("script") or {}).get("series") or {}).get("part") or 1) == 1)
 
 
-def start_series(uid, scripts: List[Dict], provider: str = "motion", voice: str = "", finish: str = "open", captions: bool = True) -> Dict:
+def start_series(uid, scripts: List[Dict], provider: str = "motion", voice: str = "", finish: str = "open", captions: bool = True, music: bool = True) -> Dict:
     """One story, or the parts of one story: all are checked, paid for (reserved) and queued together, or none of them is."""
     uid = str(uid)
     owner = _owner(uid)
@@ -182,16 +208,16 @@ def start_series(uid, scripts: List[Dict], provider: str = "motion", voice: str 
     from app.services import editor_service
     if editor_service.used_bytes(uid) + 400 * 1024 * 1024 * len(cleaned) > editor_service.quota_bytes():
         raise ValueError("Your editor storage is nearly full. Delete videos you no longer need in the editor, then try again.")
-    ests = [estimate(s, provider, owner, len(cleaned), bool(captions), "render" if finish == "render" else "open") for s in cleaned]
+    ests = [estimate(s, provider, owner, len(cleaned), bool(captions), "render" if finish == "render" else "open", bool(music)) for s in cleaned]
     total = sum(e["tokens"] for e in ests)
     cap_day = int(st["tokens_per_day"])
     if not owner and cap_day > 0:                                   # the most tokens a member may spend on story videos in a day
-        spent = sum(int(j.get("charged") or 0) if j.get("status") == "done" else int(j.get("reserved") or 0) for j in StoryJob.find_all(user_id=uid, created_at__gte=day, status__in=["queued", "running", "done"]))
+        spent = spent_today(uid)
         if spent + total > cap_day:
             raise ValueError(f"You can spend {cap_day} tokens a day on story videos and you have used {spent} today. This story needs about {total}. Make it smaller (fewer scenes, parts or AI video) or try again tomorrow.")
     if not owner and total > 0 and tokens.balance(uid) < total:
         raise ValueError(f"Not enough tokens: this story costs about {total} and you have {tokens.balance(uid)}. Use camera movement, fewer scenes or fewer parts, or ask the owner for more.")
-    made, t0 = [], now()
+    made, t0, series_id = [], now(), secrets.token_hex(8)
     try:
         for i, (s, est) in enumerate(zip(cleaned, ests)):
             reserved = 0
@@ -203,7 +229,7 @@ def start_series(uid, scripts: List[Dict], provider: str = "motion", voice: str 
                     raise ValueError(f"Not enough tokens: this story costs about {total} and you have {tokens.balance(uid)}. Use camera movement, fewer scenes or fewer parts, or ask the owner for more.")
             v = SM.voice_for(s.get("genre"), voice)
             j = StoryJob(user_id=uid, status="queued", step="Waiting in line…", pct=0, created_at=t0 + timedelta(milliseconds=i), script=s, provider=provider, voice=v,
-                         finish="render" if finish == "render" else "open", captions=bool(captions), reserved=reserved, estimate=est, discount=int(est.get("discount") or 0),
+                         finish="render" if finish == "render" else "open", captions=bool(captions), reserved=reserved, estimate=est, discount=int(est.get("discount") or 0), music=bool(music) and music_available(), series_id=series_id,
                          scenes=[{"n": x["n"], "status": "waiting"} for x in s["scenes"]], counts={}, heartbeat=time.time()).save()
             made.append(j)
     except Exception:
@@ -229,12 +255,40 @@ def list_for(uid, limit: int = 10) -> List[Dict]:
     return [view(d) for d in StoryJob.find_all(user_id=str(uid), order=("-created_at",), limit=limit)]
 
 
+def _series_receipt(d: Dict) -> Optional[Dict]:
+    """One receipt for every part of a story told in parts (shown when all the parts are finished)."""
+    sid = d.get("series_id")
+    if not sid:
+        return None
+    sibs = sorted(StoryJob.find_all(user_id=d["user_id"], series_id=sid), key=lambda x: int((((x.get("script") or {}).get("series")) or {}).get("part") or 0))
+    if len(sibs) < 2:
+        return None
+    lines: Dict[str, Dict] = {}
+    tot = {"held": 0, "used": 0, "returned": 0, "extra": 0, "later": 0.0, "discount_tokens": 0.0}
+    finished = 0
+    for j in sibs:
+        if j.get("status") in ("done", "error", "cancelled"):
+            finished += 1
+        r = j.get("receipt") or ({"lines": [], "held": int(j.get("reserved") or 0), "used": 0, "returned": int(j.get("reserved") or 0)} if j.get("status") in ("error", "cancelled") else {})
+        for l in r.get("lines") or []:
+            x = lines.setdefault(l["label"], {"label": l["label"], "unit": l.get("unit", ""), "qty": 0, "tokens": 0.0})
+            x["qty"] += l.get("qty", 0)
+            x["tokens"] = round(x["tokens"] + float(l.get("tokens") or 0), 2)
+        for k in tot:
+            tot[k] += r.get(k, 0) or 0
+    return {"parts": len(sibs), "finished": finished, "lines": list(lines.values()), **{k: (round(v, 2) if isinstance(v, float) else v) for k, v in tot.items()}}
+
+
 def get(uid, sid: str) -> Optional[Dict]:
     try:
         d = StoryJob.find_one(id=oid(sid))
     except Exception:
         return None
-    return view(d) if d and d.get("user_id") == str(uid) else None
+    if not d or d.get("user_id") != str(uid):
+        return None
+    v = view(d)
+    v["series_receipt"] = _series_receipt(d)
+    return v
 
 
 def frame_path(uid, sid: str, n: int) -> Optional[Path]:
@@ -298,7 +352,7 @@ def _receipt(d: Dict, events: List[Dict], used: int) -> Dict:
     """What was held, what each part cost, what was used and what came back (shown to the member like a shop receipt)."""
     p = tokens.pricing()
     owner = _owner(d["user_id"])
-    names = {("image", ""): ("Pictures", "pictures"), ("tts", ""): ("Narrator voice", "characters"), ("story", "captions"): ("Captions", "parts"), ("story", "render"): ("Finished video made for you", "parts"), ("story", "motion"): ("Scenes with camera movement", "scenes"), ("story", "video"): ("Scenes with AI video", "scenes")}
+    names = {("image", ""): ("Pictures", "pictures"), ("tts", ""): ("Narrator voice", "characters"), ("story", "captions"): ("Captions", "parts"), ("story", "music"): ("Background music", "parts"), ("story", "render"): ("Finished video made for you", "parts"), ("story", "motion"): ("Scenes with camera movement", "scenes"), ("story", "video"): ("Scenes with AI video", "scenes")}
     lines: Dict[tuple, Dict] = {}
     for e in events:
         key = (e.get("kind"), e.get("provider") if e.get("kind") == "story" else "")
@@ -407,7 +461,8 @@ def run(d: Dict) -> None:
             for tmp in (clip, mp3):
                 tmp.unlink(missing_ok=True)
         save(96, "Building your project in the editor…")
-        project = _make_project(uid, script, made_sources, scenes_state)
+        music_on = bool(d.get("music", True)) and music_available()
+        project = _make_project(uid, script, made_sources, scenes_state, music_on)
         result = {"project_id": project["id"], "scenes": n_total, "video_scenes": counts["video"], "motion_scenes": counts["motion"], "synthetic": True, "realistic": bool(script.get("realistic"))}
         if d.get("finish") == "render":
             try:
@@ -417,6 +472,8 @@ def run(d: Dict) -> None:
                 result["render_note"] = str(e)
         if d.get("captions", True):
             events.append({"kind": "story", "provider": "captions", "task": "story", "units": 1})
+        if music_on:
+            events.append({"kind": "story", "provider": "music", "task": "story", "units": 1})
         if result.get("render_id"):
             events.append({"kind": "story", "provider": "render", "task": "story", "units": 1})
         used = _record(d, events)
@@ -467,12 +524,26 @@ def redo_scene(uid, sid: str, n: int) -> Dict:
     sc = next((x for x in (d.get("script") or {}).get("scenes") or [] if int(x.get("n") or 0) == n), None)
     if d.get("status") != "done" or not st or not sc or not st.get("source"):
         raise ValueError("Only a scene of a finished story can be made again.")
-    if st.get("kind") != "motion":
-        raise ValueError("This scene is AI video. Only scenes with camera movement can be made again here.")
+    if st.get("kind") not in ("motion", "video"):
+        raise ValueError("Only a scene of a finished story can be made again.")
+    video = st.get("kind") == "video"
+    owner = _owner(uid)
+    vprice = float(tokens.pricing().get("story_scene_video") or 0)
+    if video:                                                       # a scene made by the AI video model: the same price as when it was made, and the same daily limit
+        prov = {x["id"]: x for x in providers(owner)}.get("veo")
+        if not prov or not prov["ok"]:
+            raise ValueError((prov or {}).get("note") or "AI video is not available.")
+        if not owner:
+            day = now() - timedelta(hours=24)
+            used = sum(int((j.get("counts") or {}).get("video", 0)) for j in StoryJob.find_all(user_id=str(uid), created_at__gte=day)) + UsageEvent.total(user_id=str(uid), kind="story", provider="redo_video", t__gte=day)
+            if used + 1 > int(settings()["video_per_day"]):
+                raise ValueError("You have used your AI video scenes for today. Try again tomorrow.")
+            if vprice > 0 and tokens.balance(str(uid)) < math.ceil(vprice - 1e-9):
+                raise ValueError(f"Not enough tokens: an AI video scene costs {vprice:g} and you have {tokens.balance(str(uid))}. Ask the owner for more.")
     cap = int(settings()["redo_per_story"])
     if int(d.get("redos") or 0) >= cap:
         raise ValueError(f"You can make pictures again {cap} time{'s' if cap != 1 else ''} for one story.")
-    why = tokens.small_shortfall(str(uid), "story_redo_scene")
+    why = None if video else tokens.small_shortfall(str(uid), "story_redo_scene")
     if why:
         raise ValueError(why)
     work = _dir(str(uid), sid)
@@ -485,7 +556,12 @@ def redo_scene(uid, sid: str, n: int) -> Dict:
     try:
         words = SM.speak(sc["narration"], d.get("voice") or SM.voice_for(d["script"].get("genre")), mp3, mood=sc.get("mood") or "calm")
         seconds = max(float(st.get("seconds") or sc["seconds"]), SM.duration(mp3) + 0.5)
-        SM.motion_clip(new, seconds, sc["camera"], clip)
+        if video:
+            ok, vwhy = SM.veo_animate(new, f"{sc['visual']}. Camera: {sc['camera']}. Smooth, natural movement of the characters. No text, no logos, no speech.", seconds, clip, wait=420)
+            if not ok:
+                raise ValueError(f"The AI video could not be made again ({vwhy}). Nothing was charged.")
+        else:
+            SM.motion_clip(new, seconds, sc["camera"], clip)
         SM.build_scene(clip, mp3, words, seconds, tmp, captions=bool(d.get("captions", True)))
         os.replace(tmp, work / f"scene_{n:02d}.mp4")
         os.replace(new, kf)
@@ -494,8 +570,12 @@ def redo_scene(uid, sid: str, n: int) -> Dict:
     finally:
         for f in (new, clip, mp3, tmp):
             f.unlink(missing_ok=True)
-    price = 0.0 if _owner(uid) else float(tokens.pricing().get("story_redo_scene") or 0)
-    tokens.charge_action(str(uid), "story_redo_scene", sid)
+    if video:
+        price = 0.0 if owner else vprice
+        tokens.charge_small(str(uid), vprice, "Story video: an AI video scene made again", "story", "redo_video", 1.0, sid)
+    else:
+        price = 0.0 if owner else float(tokens.pricing().get("story_redo_scene") or 0)
+        tokens.charge_action(str(uid), "story_redo_scene", sid)
     r = dict(d.get("receipt") or {})
     lines = [dict(x) for x in r.get("lines") or []]
     ln = next((x for x in lines if x.get("label") == "Scenes made again"), None)
@@ -509,7 +589,7 @@ def redo_scene(uid, sid: str, n: int) -> Dict:
     return view(StoryJob.find_one(id=d["_id"]))
 
 
-def _make_project(uid: str, script: Dict, source_ids: List[str], scenes: List[Dict]) -> Dict:
+def _make_project(uid: str, script: Dict, source_ids: List[str], scenes: List[Dict], music: bool = True) -> Dict:
     from app.services import edit_project_service as eps, editor_service
     pj = eps.create(uid, script["title"][:100])
     data = ep.empty()
@@ -519,7 +599,7 @@ def _make_project(uid: str, script: Dict, source_ids: List[str], scenes: List[Di
                       "look": {"preset": "cinematic", "brightness": 0, "contrast": 1, "saturation": 1}} for n, sid in enumerate(source_ids)]
     data["story"] = {"synthetic": True, "realistic": bool(script.get("realistic"))}
     data["export"] = {"preset": "yt_short", "quality": "standard"}
-    lib = editor_service.music_library()
+    lib = editor_service.music_library() if music else []
     if lib:
         data["audio"] = {"music": {"ref": lib[sum(map(ord, script["title"])) % len(lib)]["ref"], "start": 0, "volume": 0.14, "fade_in": 1, "fade_out": 2, "loop": True, "duck": True}}
     return eps.save(uid, pj["id"], pj["version"], script["title"][:100], data)

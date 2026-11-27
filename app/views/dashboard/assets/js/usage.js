@@ -4,7 +4,7 @@
 /* The owner has two views of the same numbers: what they used themselves, and what the whole studio used. One page, two tabs. */
 function usageTabs(active) {
   if (!ME || ME.role !== "owner") return "";
-  return `<div class="seg" style="margin:6px 0 14px"><a class="btn ${active === "usage" ? "on" : ""}" href="#/usage">My usage</a><a class="btn ${active === "reports" ? "on" : ""}" href="#/reports">Whole studio (reports)</a></div>`;
+  return `<div class="seg" style="margin:6px 0 14px"><a class="btn ${active === "usage" ? "on" : ""}" href="#/usage">My usage</a><a class="btn ${active === "reports" ? "on" : ""}" href="#/reports">Whole studio (reports)</a><a class="btn ${active === "stories" ? "on" : ""}" href="#/reports/stories">Story videos (studio)</a></div>`;
 }
 
 async function usage() {

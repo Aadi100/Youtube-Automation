@@ -9,6 +9,10 @@ def h_report(h):
     h.send_json(200, report_service.build_report(int(h.q.get("days") or 7)))
 
 
+def h_story_report(h):
+    h.send_json(200, report_service.story_report(int(h.q.get("days") or 30)))
+
+
 def h_ai_savings(h):
     h.send_json(200, report_service.ai_savings(int(h.q.get("days") or 7)))
 
@@ -70,12 +74,13 @@ ROUTES = [
     (r"/api/admin/price/suggest", "POST", h_price_suggest),
     (r"/api/admin/price/save", "PUT", h_price_save),
     (r"/api/admin/report", "GET", h_report),
+    (r"/api/admin/story-report", "GET", h_story_report),
     (r"/api/admin/report.csv", "GET", h_report_csv),
     (r"/api/admin/ai-savings", "GET", h_ai_savings),
     (r"/api/admin/costs", "PUT", h_costs_put),
     (r"/api/me/report", "GET", h_my_report),
     (r"/api/me/report.csv", "GET", h_my_report_csv),
 ]
-OWNER_ONLY.update({h_report, h_report_csv, h_costs_put, h_ai_savings, h_price_overview, h_price_suggest, h_price_save})
+OWNER_ONLY.update({h_story_report, h_report, h_report_csv, h_costs_put, h_ai_savings, h_price_overview, h_price_suggest, h_price_save})
 bp = Blueprint("report", __name__)
 register(bp, ROUTES)

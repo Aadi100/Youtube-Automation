@@ -43,6 +43,8 @@ DEFAULT_PRICING = {
     "story_captions": 0.3,           # story video: burning captions into the scenes (once for each part)
     "story_render": 1.0,             # story video: making the finished video by itself at the end (once for each part)
     "story_redo_scene": 1.0,         # story video: making one picture (and its scene) again
+    "story_music": 0.5,              # story video: background music from the studio's music library (once for each part)
+    "story_series_extra": 0.5,       # story video: writing each part after the first (the story continues, the characters stay the same, every part ends on a cliffhanger)
     "social_caption": 1.0,           # one 'Rewrite with AI' for a TikTok / Instagram / Facebook caption (a failed rewrite is never charged)
     "trend_short": 2.0,              # Trending mode: looking at what is growing fastest for the game first (a Short); charged only when the video is made
     "trend_compilation": 8.0,        # the same for a compilation
@@ -87,7 +89,7 @@ def set_pricing(data: Dict) -> Dict:
 
 
 # What the services really charge the owner, in US dollars (the owner types these in; 0 = not entered / free tier). Used for records only.
-REAL_COST_KEYS = ["gemini_in_per_1m", "gemini_out_per_1m", "deepseek_in_per_1m", "deepseek_out_per_1m", "claude_in_per_1m", "claude_out_per_1m", "claude_search_usd", "image_gemini_usd", "image_free_usd", "image_flux_usd", "token_usd"]
+REAL_COST_KEYS = ["gemini_in_per_1m", "gemini_out_per_1m", "deepseek_in_per_1m", "deepseek_out_per_1m", "claude_in_per_1m", "claude_out_per_1m", "claude_search_usd", "image_gemini_usd", "image_free_usd", "image_flux_usd", "story_video_usd", "azure_tts_usd_per_1k", "token_usd"]
 TOKEN_USD_DEFAULT = 0.01      # what one studio token is worth in dollars (the owner sets it: it turns tokens billed into revenue)
 
 
@@ -119,6 +121,10 @@ def usd_of(kind: str, provider: str, tin: int, tout: int, units: float, r: Dict)
         return units * (r["image_gemini_usd"] if provider == "gemini" else r["image_flux_usd"] if provider == "flux" else r["image_free_usd"])
     if kind == "web_search":
         return units * r["claude_search_usd"]
+    if kind == "story" and provider in ("video", "redo_video"):        # one AI video scene
+        return units * r["story_video_usd"]
+    if kind == "tts" and provider == "azure":                          # the narrator with feelings, per 1,000 characters
+        return units / 1000.0 * r["azure_tts_usd_per_1k"]
     return 0.0
 
 
@@ -183,7 +189,7 @@ def price_event(e: Dict, p: Dict) -> float:
     if k == "trend":
         return float(e.get("units") or 0) * (p["trend_compilation"] if prov == "compilation" else p["trend_short"])
     if k == "story":                                              # a story video: the script, and every scene by the way it was made
-        return float(e.get("units") or 0) * float(p.get({"script": "story_script", "video": "story_scene_video", "motion": "story_scene_motion", "captions": "story_captions", "render": "story_render", "redo": "story_redo_scene"}.get(prov, "story_script")) or 0)
+        return float(e.get("units") or 0) * float(p.get({"script": "story_script", "video": "story_scene_video", "motion": "story_scene_motion", "captions": "story_captions", "render": "story_render", "redo": "story_redo_scene", "music": "story_music", "series": "story_series_extra", "redo_video": "story_scene_video"}.get(prov, "story_script")) or 0)
     if k == "source":
         return float(e.get("units") or 0) * float(p.get({"twitch": "twitch_source", "kick": "kick_source"}.get(prov, "youtube_source")) or 0)
     return 0.0

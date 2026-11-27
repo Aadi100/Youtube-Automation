@@ -11,7 +11,7 @@ async function overview() {
         <section class="card"><div class="sechead"><h2>Setup</h2></div><div id="setup"></div></section></aside></div>`;
   $("#hero_create").onclick = () => { location.hash = "#/create"; };
   const load = async () => {
-    const [h, s, v, jobs, sc, yt] = await Promise.all([api("/api/health"), api("/api/stats"), api("/api/videos"), api("/api/jobs"), api("/api/schedule/overview"), api("/api/youtube/status").catch(() => null)]);
+    const [h, s, v, jobs, sc, yt, storyList] = await Promise.all([api("/api/health"), api("/api/stats"), api("/api/videos"), api("/api/jobs"), api("/api/schedule/overview"), api("/api/youtube/status").catch(() => null), api("/api/stories").catch(() => ({stories: []}))]);
     if (false) {
       $("#ytprompt").innerHTML = `<section class="card" style="border-color:var(--warn);display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
         <div style="flex:1;min-width:240px"><h2 style="margin:0 0 4px">Connect your YouTube channel</h2>
@@ -21,10 +21,14 @@ async function overview() {
     } else $("#ytprompt").innerHTML = "";
     const vs = s.videos_by_status, tot = Object.values(vs).reduce((a, b) => a + b, 0);
     const steps = [["Connect your YouTube channel", yt && !yt.configured ? "The owner has not finished setting up YouTube yet. You can still make videos." : "So your videos can go to your channel by themselves.", !!(!yt || yt.connected || !yt.configured), "Connect", "yt"],
+                   ["Choose your voice and look", "Your narrator, thumbnail style and logo.", !!((ME.prefs || {}).tts_voice), "Choose", "#/settings/prefs"],
                    ["Make your first video", "Pick a game and press Start. It takes a few minutes.", tot > 0, "Make a video", "#/create"],
+                   ["Make a story video", "Pick a genre and the AI writes it scene by scene.", (storyList.stories || []).length > 0, "Story videos", "#/stories"],
                    ["Let it run by itself", "Choose times and the studio makes videos for you.", sc.upcoming.length > 0, "Set a schedule", "#/schedule"]];
     const gs = $("#getstarted");
-    if (gs) gs.innerHTML = steps.every(x => x[2]) ? "" : `<section class="gs"><h2>Get started in 3 steps</h2><p>Do these one by one. You can skip any step and come back later.</p><ol class="gsl">${steps.map((x, i) => `<li class="${x[2] ? "done" : ""}"><span class="no">${x[2] ? "✓" : i + 1}</span><div class="tx"><b>${x[0]}</b><span>${x[1]}</span></div>${x[2] ? "" : x[4] === "yt" ? `<button class="pri" id="gs_yt">${x[3]}</button>` : `<a class="btn" href="${x[4]}">${x[3]}</a>`}</li>`).join("")}</ol></section>`;
+    const tourPending = ME.role !== "owner" && !(ME.prefs || {}).tour;          // a new member is shown the tour first, then this checklist
+    if (gs) gs.innerHTML = tourPending || steps.every(x => x[2]) ? "" : `<section class="gs"><h2>Get started in ${steps.length} steps</h2><p>Each step ticks by itself when it is done. You can skip any step and come back later.${ME.role !== "owner" ? ` <a href="#" id="gs_tour">Take the tour</a>` : ""}</p><ol class="gsl">${steps.map((x, i) => `<li class="${x[2] ? "done" : ""}"><span class="no">${x[2] ? "✓" : i + 1}</span><div class="tx"><b>${x[0]}</b><span>${x[1]}</span></div>${x[2] ? "" : x[4] === "yt" ? `<button class="pri" id="gs_yt">${x[3]}</button>` : `<a class="btn" href="${x[4]}">${x[3]}</a>`}</li>`).join("")}</ol></section>`;
+    if ($("#gs_tour")) $("#gs_tour").onclick = e => { e.preventDefault(); startTour(true); };
     if ($("#gs_yt")) $("#gs_yt").onclick = guard(async () => { const r = await api("/api/youtube/connect", {method: "POST"}); location.href = r.url; });
     const waiting = v.filter(x => x.status === "uploaded" || x.status === "rendered").length;
     const kpi = (ic, tone, n, l, href) => `<${href ? `a href="${href}"` : "div"} class="card kpi"><span class="ic ${tone}">${svg(ic)}</span><div><div class="n">${n}</div><div class="l">${l}</div></div></${href ? "a" : "div"}>`;

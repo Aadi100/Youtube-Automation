@@ -80,6 +80,11 @@ def h_prefs_put(h):
         if v and not auth.EMAIL_RE.match(v):
             raise ValueError("Enter a valid email address for notifications.")
         upd["notify_to"] = v
+    if "tour" in d:                                   # the first-visit tour: done, skipped, or empty to see it again
+        v = str(d["tour"] or "")
+        if v not in ("", "done", "skipped"):
+            raise ValueError("bad tour state")
+        upd["tour"] = v
     if upd:
         UserPrefs.set_fields(h.uid, upd, upsert=True)
     h.send_json(200, {"user": _me(User.find_one(id=h.user["_id"]))})

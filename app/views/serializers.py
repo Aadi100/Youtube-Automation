@@ -153,4 +153,4 @@ def _job_view(j, games_by_id, videos_by_id, owner=False):
 def _me(u: dict) -> dict:
     p = UserPrefs.of(u["_id"])
     from app.services import profile_service
-    return {**auth.public(u), "avatar": profile_service.has_avatar(u["_id"]), "prefs": {"tts_voice": p.get("tts_voice", ""), "default_audio": p.get("default_audio", ""), "notify_to": p.get("notify_to", ""), "hold_uploads": bool(p.get("hold_uploads"))}}
+    return {**auth.public(u), "avatar": profile_service.has_avatar(u["_id"]), "prefs": {"tts_voice": p.get("tts_voice", ""), "default_audio": p.get("default_audio", ""), "notify_to": p.get("notify_to", ""), "hold_uploads": bool(p.get("hold_uploads")), "tour": p.get("tour", "")}}

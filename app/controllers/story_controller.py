@@ -3,7 +3,7 @@ from flask import Blueprint
 
 from app.engine import story_media, story_script, story_trends
 from app.http import OWNER_ONLY, register
-from app.services import story_service as svc
+from app.services import story_service as svc, token_service as tokens
 
 
 def _safe(fn):
@@ -22,7 +22,7 @@ def _safe(fn):
 
 def h_options(h):
     out = {"styles": [{"id": a, "name": b, "about": c} for a, b, c in story_script.ART_STYLES], "genres": [{"id": g[0], "name": g[1], "about": g[3]} for g in story_trends.GENRES],
-           "providers": svc.providers(h.is_owner()), "limits": {k: v for k, v in svc.settings().items()}, "mine": svc.list_for(h.uid, 5)}
+           "providers": svc.providers(h.is_owner()), "music": svc.music_available(), "limits": {k: v for k, v in svc.settings().items()}, "mine": svc.list_for(h.uid, 5)}
     h.send_json(200, out)
 
 
@@ -46,15 +46,20 @@ def h_script(h):
 def h_estimate(h):
     d = h.body_json()
     scripts = d.get("scripts") if isinstance(d.get("scripts"), list) and d.get("scripts") else [d.get("script") or {}]
-    es = [svc.estimate(story_script.clean(x), str(d.get("provider") or "motion"), h.is_owner(), len(scripts[:story_script.MAX_PARTS]), bool(d.get("captions", True)), "render" if d.get("finish") == "render" else "open") for x in scripts[:story_script.MAX_PARTS]]
-    h.send_json(200, {**es[0], "parts": len(es), **{k: sum(e[k] for e in es) for k in ("scenes", "pictures", "video_scenes", "motion_scenes", "tokens")}})
+    es = [svc.estimate(story_script.clean(x), str(d.get("provider") or "motion"), h.is_owner(), len(scripts[:story_script.MAX_PARTS]), bool(d.get("captions", True)), "render" if d.get("finish") == "render" else "open", bool(d.get("music", True))) for x in scripts[:story_script.MAX_PARTS]]
+    total = sum(e["tokens"] for e in es)
+    cap = int(svc.settings()["tokens_per_day"])
+    mine = not h.is_owner()
+    h.send_json(200, {**es[0], "parts": len(es), **{k: sum(e[k] for e in es) for k in ("scenes", "pictures", "video_scenes", "motion_scenes", "tokens")},
+                      "detail": [{"per_scene": e["per_scene"]} for e in es], "balance": tokens.balance(h.uid) if mine else None,
+                      "cap_left": max(0, cap - svc.spent_today(h.uid)) if mine and cap > 0 else None, "total": total})
 
 
 @_safe
 def h_start(h):
     d = h.body_json()
     scripts = d.get("scripts") if isinstance(d.get("scripts"), list) and d.get("scripts") else [d.get("script") or {}]
-    jobs = svc.start_series(h.uid, scripts, str(d.get("provider") or "motion"), str(d.get("voice") or ""), str(d.get("finish") or "open"), bool(d.get("captions", True)))["jobs"]
+    jobs = svc.start_series(h.uid, scripts, str(d.get("provider") or "motion"), str(d.get("voice") or ""), str(d.get("finish") or "open"), bool(d.get("captions", True)), bool(d.get("music", True)))["jobs"]
     h.send_json(202, {**jobs[0], "jobs": jobs})
 
 

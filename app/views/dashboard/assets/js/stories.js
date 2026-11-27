@@ -50,12 +50,12 @@ async function stories() {
     $("#st_script").innerHTML = `${scripts.length > 1 ? `<div class="stparts">${scripts.map((p, i) => `<button class="${i === part ? "pri" : ""}" data-part="${i}">Part ${i + 1}</button>`).join("")}<span class="muted">One story in ${scripts.length} parts. Each part is its own video and ends so that people want the next one.</span></div>` : ""}<label>Title</label><input id="sc_title" maxlength="90" value="${esc(script.title)}"><label>Description (for the video)</label><textarea id="sc_desc" rows="2" maxlength="600">${esc(script.description)}</textarea>
       ${script.characters.length ? `<h3 style="margin-top:12px">Characters (they look the same in every scene)</h3>${script.characters.map((c, i) => `<div class="row" style="gap:8px"><b style="min-width:90px">${esc(c.name)}</b><input data-ch="${i}" class="grow" maxlength="200" value="${esc(c.look)}"></div>`).join("")}` : ""}
       <h3 style="margin-top:12px">Scenes <span class="muted" id="sc_total"></span></h3>
-      ${script.scenes.map((s, i) => `<div class="scene" data-i="${i}"><div class="row" style="gap:8px;align-items:center"><b>Scene ${s.n}</b><span class="grow"></span><select class="sc_cam">${CAMS.map(c => `<option ${c === s.camera ? "selected" : ""}>${c}</option>`).join("")}</select><label class="pjchk" style="margin:0" title="Only used when you choose AI video below"><input type="checkbox" class="sc_key" ${s.key ? "checked" : ""}><span>AI video here</span></label><button class="dng sc_del" title="Remove this scene">✕</button></div>
+      ${script.scenes.map((s, i) => `<div class="scene" data-i="${i}"><div class="row" style="gap:8px;align-items:center"><b>Scene ${s.n}</b><span class="muted sc_cost"></span><span class="grow"></span><select class="sc_cam">${CAMS.map(c => `<option ${c === s.camera ? "selected" : ""}>${c}</option>`).join("")}</select><label class="pjchk" style="margin:0" title="Only used when you choose AI video below"><input type="checkbox" class="sc_key" ${s.key ? "checked" : ""}><span>AI video here</span></label><button class="dng sc_del" title="Remove this scene">✕</button></div>
         <label>The narrator says</label><textarea class="sc_nar" rows="2" maxlength="240">${esc(s.narration)}</textarea><label>What we see (who is where and what they do)</label><textarea class="sc_vis" rows="2" maxlength="300">${esc(s.visual)}</textarea></div>`).join("")}
       <div class="stlabel" style="margin-top:10px">${script.realistic ? "This look is realistic. When you post it, YouTube's 'altered or synthetic content' box is ticked for you." : "Every story video is marked as AI-made in the editor."}</div>`;
     $("#st_script").querySelectorAll(".scene").forEach(el => {
       const i = +el.dataset.i;
-      el.querySelector(".sc_nar").oninput = e => { script.scenes[i].narration = e.target.value; sync(); };
+      el.querySelector(".sc_nar").oninput = e => { script.scenes[i].narration = e.target.value; sync(); estimateSoon(); };
       el.querySelector(".sc_vis").oninput = e => { script.scenes[i].visual = e.target.value; };
       el.querySelector(".sc_key").onchange = e => { script.scenes[i].key = e.target.checked; estimate(); };
       el.querySelector(".sc_cam").onchange = e => { script.scenes[i].camera = e.target.value; };
@@ -73,21 +73,30 @@ async function stories() {
     $("#st4").hidden = false;
     $("#st_make").innerHTML = `<label>How should the scenes move?</label><div class="stprov">${opt.providers.map(p => `<label class="stp1 ${p.ok ? "" : "off"}"><input type="radio" name="st_prov" value="${p.id}" ${p.id === provider ? "checked" : ""} ${p.ok ? "" : "disabled"}><span><b>${esc(p.name)}</b><span class="muted">${esc(p.note)}</span></span></label>`).join("")}</div>
       <label class="pjchk" style="margin-top:10px"><input type="checkbox" id="st_cap" checked><span>Burn captions into the pictures</span></label>
+      ${opt.music ? `<label class="pjchk"><input type="checkbox" id="st_music" checked><span>Add background music</span></label>` : ""}
       <label class="pjchk"><input type="checkbox" id="st_fin"><span>Make the finished video by itself at the end (otherwise you can change things in the editor first)</span></label>
       <div class="stest" id="st_est" style="margin:12px 0">Working out the price…</div><div class="row" style="gap:8px"><button class="pri" id="st_go">Make my story video</button><span class="muted">It runs in the background. You can leave this page.</span></div>`;
     $("#st_make").querySelectorAll("[name=st_prov]").forEach(r => r.onchange = () => { provider = r.value; estimate(); });
-    ["#st_cap", "#st_fin"].forEach(q => { if ($(q)) $(q).onchange = () => estimate(); });
+    ["#st_cap", "#st_fin", "#st_music"].forEach(q => { if ($(q)) $(q).onchange = () => estimate(); });
     $("#st_go").onclick = guard(async () => {
       $("#st_go").disabled = true;
-      try { const r = await api("/api/stories", {method: "POST", body: {scripts, provider, finish: $("#st_fin").checked ? "render" : "open", captions: $("#st_cap").checked}}); toast(scripts.length > 1 ? `Your ${scripts.length} parts are in the line` : "Your story is in the line"); follow(r.id); }
+      try { const r = await api("/api/stories", {method: "POST", body: {scripts, provider, finish: $("#st_fin").checked ? "render" : "open", captions: $("#st_cap").checked, music: $("#st_music") ? $("#st_music").checked : false}}); toast(scripts.length > 1 ? `Your ${scripts.length} parts are in the line` : "Your story is in the line"); follow(r.id); }
       finally { $("#st_go").disabled = false; }
     });
     estimate();
   }
+  let estT = null;
+  const estimateSoon = () => { clearTimeout(estT); estT = setTimeout(() => { if ($("#st_est")) estimate(); }, 700); };
   const estimate = guard(async () => {
-    const e = await api("/api/stories/estimate", {method: "POST", body: {scripts, provider, captions: $("#st_cap") ? $("#st_cap").checked : true, finish: $("#st_fin") && $("#st_fin").checked ? "render" : "open"}}); const box = $("#st_est"); if (!box) return;
+    const e = await api("/api/stories/estimate", {method: "POST", body: {scripts, provider, captions: $("#st_cap") ? $("#st_cap").checked : true, finish: $("#st_fin") && $("#st_fin").checked ? "render" : "open", music: $("#st_music") ? $("#st_music").checked : false}}); const box = $("#st_est"); if (!box) return;
     const pn = e.parts > 1 ? ` in ${e.parts} parts${e.discount ? ` (${e.discount}% off each part)` : ""}` : "";
     box.innerHTML = e.free ? `${e.scenes} scenes${pn}: free for the owner (the usage is still recorded).` : `${e.scenes} scenes${pn}: <b>about ${e.tokens} tokens</b> (${e.pictures} pictures${e.video_scenes ? `, ${e.video_scenes} AI video scene${e.video_scenes === 1 ? "" : "s"}` : ""}${e.motion_scenes ? `, ${e.motion_scenes} with camera movement` : ""}). The tokens are held now and what is not used comes back. A failed story costs nothing.`;
+    const low = !e.free && e.balance !== null && e.tokens > e.balance, cap = !e.free && e.cap_left !== null && e.tokens > e.cap_left;
+    if (low) box.insertAdjacentHTML("beforeend", `<div class="stwarn">You have ${e.balance} token${e.balance === 1 ? "" : "s"} and this needs about ${e.tokens}. Make it smaller (fewer scenes, parts or AI video), or ask the owner for more tokens.</div>`);
+    else if (cap) box.insertAdjacentHTML("beforeend", `<div class="stwarn">You can spend ${e.cap_left} more token${e.cap_left === 1 ? "" : "s"} on story videos today and this needs about ${e.tokens}. Make it smaller, or try again tomorrow.</div>`);
+    if ($("#st_go")) $("#st_go").disabled = !!(low || cap);
+    const per = e.detail && e.detail[part] ? e.detail[part].per_scene : [];
+    document.querySelectorAll("#st_script .scene").forEach((el, i) => { const c = el.querySelector(".sc_cost"); if (c) c.textContent = e.free || per[i] === undefined ? "" : `· about ${per[i]} token${per[i] === 1 ? "" : "s"}`; });
   });
   /* ---- progress */
   function drawRun(j) {
@@ -97,15 +106,23 @@ async function stories() {
       <span class="muted">${j.status === "queued" ? (j.ahead ? `${j.ahead} ahead of yours` : "You are next") : esc(j.status === "error" ? j.error : j.step || "")}</span><span class="grow"></span>
       ${act ? `<button id="stj_cancel">Cancel</button>` : j.status === "done" ? `<a class="btn pri" href="#/projects/${j.result.project_id}">Open it in Edit projects</a>` : ""}</div>
       ${act ? `<div class="pgx-bar" style="margin-top:10px"><i style="width:${j.pct}%"></i></div>` : ""}
-      <div class="stthumbs">${(j.scenes || []).map(s => `<div class="stth ${s.status}" title="${esc(s.note || "")}">${s.status === "done" || ["running"].includes(j.status) && s.status !== "waiting" ? `<img alt="" src="/api/stories/${j.id}/frame/${s.n}?t=${Date.now() % 100000}" onerror="this.style.display='none'">` : ""}<span>${s.n}</span>${s.kind ? `<i>${s.kind === "video" ? "AI video" : "camera"}</i>` : ""}${j.status === "done" && s.kind === "motion" ? `<button class="stredo" data-redo="${s.n}" title="Make this picture again (costs a few tokens)">↻</button>` : ""}</div>`).join("")}</div>
-      ${receipt(j)}
+      <div class="stthumbs">${(j.scenes || []).map(s => `<div class="stth ${s.status}" title="${esc(s.note || "")}">${s.status === "done" || ["running"].includes(j.status) && s.status !== "waiting" ? `<img alt="" src="/api/stories/${j.id}/frame/${s.n}?t=${Date.now() % 100000}" onerror="this.style.display='none'">` : ""}<span>${s.n}</span>${s.kind ? `<i>${s.kind === "video" ? "AI video" : "camera"}</i>` : ""}${j.status === "done" && (s.kind === "motion" || s.kind === "video") ? `<button class="stredo" data-redo="${s.n}" data-kind="${s.kind}" title="${s.kind === "video" ? "Make this AI video scene again (costs the same as the first time, takes a few minutes)" : "Make this picture again (costs a few tokens)"}">↻</button>` : ""}</div>`).join("")}</div>
+      ${receipt(j)}${seriesReceipt(j)}
       ${j.status === "done" ? `<p class="muted" style="margin:10px 0 0">${j.result.video_scenes} scene${j.result.video_scenes === 1 ? "" : "s"} with AI video, ${j.result.motion_scenes} with camera movement. You paid ${j.charged || 0} token${j.charged === 1 ? "" : "s"}. ${j.result.render_id ? "The video is being made now (see My videos)." : "Change anything you like in the editor, then press Make video."}${j.result.realistic ? " The look is realistic, so the upload will tick YouTube's AI label." : ""}</p>` : ""}</div>`;
     box.querySelectorAll("[data-redo]").forEach(b => b.onclick = guard(async () => {
-      if (!confirm("Make this picture again? A new picture is drawn and the narration is recorded again. This costs tokens (see the price in your estimate); if it fails you pay nothing.")) return;
+      if (!confirm(b.dataset.kind === "video" ? "Make this AI video scene again? A new picture is drawn and the AI makes the video again. It takes a few minutes and costs the same as the first time. If it fails you pay nothing." : "Make this picture again? A new picture is drawn and the narration is recorded again. This costs tokens (see the price in your estimate); if it fails you pay nothing.")) return;
       b.disabled = true; b.textContent = "…";
       try { const r = await api(`/api/stories/${j.id}/scenes/${b.dataset.redo}/redo`, {method: "POST"}); toast("The picture was made again"); drawRun(r); } finally { b.disabled = false; }
     }));
     if ($("#stj_cancel")) $("#stj_cancel").onclick = guard(async () => { await api(`/api/stories/${j.id}/cancel`, {method: "POST"}); poll(j.id); });
+  }
+  function seriesReceipt(j) {
+    const r = j.series_receipt; if (!r) return "";
+    if (r.finished < r.parts) return `<div class="muted" style="margin-top:10px">Receipt for the whole story: ${r.finished} of ${r.parts} parts are finished.</div>`;
+    const n = x => (Math.round(x * 100) / 100).toString();
+    return `<div class="strcpt"><b>Receipt for the whole story (${r.parts} parts)</b><table>${(r.lines || []).map(l => `<tr><td>${esc(l.label)}</td><td class="muted">${l.qty.toLocaleString()} ${esc(l.unit)}</td><td>${n(l.tokens)}</td></tr>`).join("")}
+      ${r.discount_tokens ? `<tr><td colspan="2">Parts discount</td><td>-${n(r.discount_tokens)}</td></tr>` : ""}
+      <tr class="sep"><td colspan="2">Held when you started</td><td>${r.held}</td></tr><tr><td colspan="2"><b>Used</b></td><td><b>${r.used}</b></td></tr><tr><td colspan="2">Given back</td><td>${r.returned}</td></tr>${r.later ? `<tr><td colspan="2">Scenes made again (paid later)</td><td>${n(r.later)}</td></tr>` : ""}</table></div>`;
   }
   function receipt(j) {
     const r = j.receipt; if (!r || !["done", "error", "cancelled"].includes(j.status)) return "";

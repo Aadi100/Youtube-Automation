@@ -57,6 +57,7 @@ async function boot() {
   pollNotifs(); setInterval(pollNotifs, 8000);
   checkUiVersion(); setInterval(checkUiVersion, 15000);
   nav();
+  if (typeof maybeTour === "function") maybeTour();
 }
 addEventListener("DOMContentLoaded", boot);
 $("#drawer").addEventListener("click", e => { if (e.target.id === "drawer") closeDrawer(); });
