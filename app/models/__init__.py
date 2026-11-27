@@ -5,14 +5,14 @@
 from app.models.accounts import AuthAttempt, Notification, Session, User, UserPrefs
 from app.models.base import Doc, clean, connect, now, oid, ping, raw, scope, scope_uid
 from app.models.billing import AiCache, AiSaving, TokenLedger, UsageEvent
-from app.models.content import BANK_DAYS, Claim, ChannelRegion, Clip, ClipSnap, EditProject, EditRender, EditSource, Game, Job, Permission, SpikeAlert, ResearchLead, ResearchRun, Scan, Video
+from app.models.content import BANK_DAYS, Claim, ChannelRegion, Clip, ClipSnap, EditProject, EditRender, EditSource, Game, Job, Permission, SpikeAlert, StoryJob, ResearchLead, ResearchRun, Scan, Video
 from app.models.lab import LabExample, LabLog, LabState
 from app.models.reactions import RxLabel, RxModel, RxScan
 from app.models.system import Setting, System
 from app.models.youtube import OAuthState, YtAccount, YtQuota
 
 ALL = [User, Session, AuthAttempt, UserPrefs, Setting, System, Game, Clip, Video, Job, Claim, ChannelRegion,
-       TokenLedger, UsageEvent, YtAccount, YtQuota, OAuthState, EditSource, EditProject, EditRender, Permission, ClipSnap, SpikeAlert, Notification, Scan, AiCache, AiSaving, ResearchRun, ResearchLead, RxScan, RxLabel, RxModel, LabExample, LabLog, LabState]
+       TokenLedger, UsageEvent, YtAccount, YtQuota, OAuthState, EditSource, EditProject, EditRender, Permission, ClipSnap, SpikeAlert, StoryJob, Notification, Scan, AiCache, AiSaving, ResearchRun, ResearchLead, RxScan, RxLabel, RxModel, LabExample, LabLog, LabState]
 
 
 def create_indexes() -> None:

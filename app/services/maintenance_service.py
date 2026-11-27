@@ -135,6 +135,8 @@ def boot() -> None:
             threading.Thread(target=uploader, daemon=True).start()
         from app.services import edit_project_service
         edit_project_service.start_workers()          # the editor's render queue (projects)
+        from app.services import story_service
+        story_service.start_workers()                 # story videos (script -> pictures -> scenes -> a project in the editor)
         from app.services import spike_service
         spike_service.start()                         # spike alerts: looks at Twitch for the games of members who switched them on
 

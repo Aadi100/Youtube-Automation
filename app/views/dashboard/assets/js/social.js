@@ -1,17 +1,25 @@
-/* Post on TikTok, Instagram and Facebook: a ready-made caption for each, the video file, and a record of where it was posted. */
+/* Other platforms: post a video on TikTok, Instagram, Facebook and Twitch. A ready-made caption (or title and description) for each, the video file, and a record of where it was posted. */
 "use strict";
 const SOCIAL_LIST = [["tiktok", "TikTok", "https://www.tiktok.com/upload", "Open TikTok upload", "Upload the video, paste the caption, post."],
                      ["instagram", "Instagram Reels", "https://www.instagram.com/", "Open Instagram", "Tap + (Create), choose Reel, upload, paste the caption, share."],
                      ["facebook", "Facebook Reels", "https://www.facebook.com/reels/create", "Open Facebook Reels", "Upload the video, paste the caption, publish."]];
+const TWITCH_CARD = ["twitch", "Twitch", "https://dashboard.twitch.tv/", "Open Twitch", "No connection needed (Twitch has no automatic upload). Content → Video Producer → Upload, then paste the title and description."];
 async function social() {
-  $("#main").innerHTML = `<h1>Post on TikTok, Instagram and Facebook</h1>
+  $("#main").innerHTML = `<h1>Post on TikTok, Instagram, Facebook and Twitch</h1>
     <div class="steps4"><div class="step"><span class="no">1</span><div><b>Download</b><span>Get the video file.</span></div></div>
       <div class="step"><span class="no">2</span><div><b>Open the platform</b><span>Use the button on its card.</span></div></div>
-      <div class="step"><span class="no">3</span><div><b>Copy &amp; paste</b><span>Each caption is written for that platform.</span></div></div>
+      <div class="step"><span class="no">3</span><div><b>Copy &amp; paste</b><span>Each one is written for that platform.</span></div></div>
       <div class="step"><span class="no">4</span><div><b>Mark as posted</b><span>So you always know what is left.</span></div></div></div>
-    <div class="toolbar"><select id="sf"><option value="todo">Not posted everywhere yet</option><option value="all">All my Shorts</option></select></div>
+    <div class="toolbar"><select id="sf"><option value="todo">Not posted everywhere yet</option><option value="all">All my videos</option></select></div>
     <div id="slist"></div>`;
-  const mark = guard(async (id, platform, status, url) => { await api(`/api/videos/${id}/social`, {method: "POST", body: {platform, status, url: url || ""}}); toast("Saved"); load(); });
+  const stOf = (v, p) => p === "twitch" ? ({uploaded: "posted", skipped: "skipped"}[(v.twitch || {}).status] || "pending") : ((v.social[p] || {}).status || "pending");
+  const urlOf = (v, p) => p === "twitch" ? (v.twitch || {}).url : (v.social[p] || {}).url;
+  const platformsOf = v => v.kind === "short" ? [...SOCIAL_LIST, TWITCH_CARD] : [TWITCH_CARD];          // vertical platforms only get Shorts; Twitch takes any video
+  const mark = guard(async (id, p, status, url) => {
+    if (p === "twitch") await api(`/api/videos/${id}/twitch`, {method: "POST", body: {status: status === "posted" ? "uploaded" : status, url: url || ""}});
+    else await api(`/api/videos/${id}/social`, {method: "POST", body: {platform: p, status, url: url || ""}});
+    toast("Saved"); load();
+  });
   const copy = guard(async text => { await navigator.clipboard.writeText(text); toast("Copied"); });
   let price = {rewrite: 1, free: false};
   const tok = n => `${+(+n).toFixed(2)} token${+n === 1 ? "" : "s"}`;
@@ -22,31 +30,44 @@ async function social() {
     toast(action === "reset" ? "Back to the first caption" : (r.charged ? `New caption written (${tok(r.charged)})` : "New caption written"));
     load();
   });
+  const badge = s => s === "posted" ? `<span class="badge uploaded">Posted</span>` : s === "skipped" ? `<span class="badge declined">Skipped</span>` : `<span class="badge rendered">Waiting</span>`;
+  const controls = (v, p) => { const s = stOf(v, p), u = urlOf(v, p); return s === "pending" ? `<div class="row" style="gap:8px;flex-wrap:wrap"><input class="grow" data-f="url" placeholder="Link to the post (optional)"><button class="pri" data-a="done">Mark as posted</button><button data-a="skip">Skip</button></div>`
+    : `<div class="row" style="gap:8px">${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">Open the post</a>` : ""}<button data-a="undo">Undo</button></div>`; };
+  const card = (v, [p, name, open, openText, how]) => {
+    if (p === "twitch") { const t = v.twitch_pack || {}; return `
+      <div class="socbox" data-p="twitch"><div class="row"><b class="grow">${name}</b>${badge(stOf(v, p))}</div>
+        <label>Title</label><div class="row"><input class="grow" readonly value="${esc(t.title)}"><button data-a="ct">Copy</button></div>
+        <label>Description</label><div class="row" style="align-items:flex-start"><textarea class="grow" readonly rows="5">${esc(t.description)}</textarea><button data-a="cd">Copy</button></div>
+        ${t.category ? `<label>Category to pick</label><div class="row"><input class="grow" readonly value="${esc(t.category)}"><button data-a="cc">Copy</button></div>` : ""}
+        ${t.tags && t.tags.length ? `<label>Tags (up to 10)</label><div class="row"><input class="grow" readonly value="${esc(t.tags.join(", "))}"><button data-a="cg">Copy</button></div>` : ""}
+        <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><a class="btn" href="${open}" target="_blank" rel="noopener">${openText}</a></div>
+        <div class="muted" style="font-size:12.5px;margin:6px 0">${how}</div>${controls(v, p)}</div>`; }
+    return `
+      <div class="socbox" data-p="${p}"><div class="row"><b class="grow">${name}</b>${(v.social_ai || {})[p] ? `<span class="badge running" title="Written by the AI">AI</span>` : ""}${badge(stOf(v, p))}</div>
+        <label>Caption for ${name}</label><textarea readonly rows="7">${esc(v.social_pack[p])}</textarea>
+        <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button data-a="copy">Copy caption</button><button data-a="ai" title="${price.free ? "Free" : "Costs " + tok(price.rewrite) + " each time"}">Rewrite with AI${price.free ? "" : ` (${tok(price.rewrite)})`}</button>${(v.social_ai || {})[p] ? `<button data-a="orig">Back to the first caption</button>` : ""}<a class="btn" href="${open}" target="_blank" rel="noopener">${openText}</a></div>
+        <div class="muted" style="font-size:12.5px;margin:6px 0">${how}</div>${controls(v, p)}</div>`;
+  };
   const load = guard(async () => {
-    const all = (await api("/api/videos?kind=short")).filter(v => !["failed", "discarded", "declined"].includes(v.status));
-    const list = $("#sf").value === "all" ? all : all.filter(v => SOCIAL_LIST.some(([p]) => (v.social[p] || {}).status === "pending"));
+    const all = (await api("/api/videos")).filter(v => !["failed", "discarded", "declined"].includes(v.status));
+    const list = $("#sf").value === "all" ? all : all.filter(v => platformsOf(v).some(([p]) => stOf(v, p) === "pending"));
     const box = $("#slist");
-    if (!all.length) { box.innerHTML = `<div class="card">${emptyState("film", "No Shorts yet", "Make a Short and it appears here, ready to post.")}</div>`; return; }
-    if (!list.length) { box.innerHTML = `<div class="card">${emptyState("check", "All posted", "Every Short has been posted or skipped on all three platforms.")}</div>`; return; }
+    if (!all.length) { box.innerHTML = `<div class="card">${emptyState("film", "No videos yet", "Make a video and it appears here, ready to post.")}</div>`; return; }
+    if (!list.length) { box.innerHTML = `<div class="card">${emptyState("check", "All posted", "Every video has been posted or skipped everywhere.")}</div>`; return; }
     box.innerHTML = list.map(v => `
       <div class="card" style="margin-bottom:16px" data-id="${v.id}">
-        <div class="row" style="gap:14px;align-items:center;flex-wrap:wrap"><img alt="" loading="lazy" src="/media/${v.id}/thumb" style="width:54px;height:96px;object-fit:cover;border-radius:8px">
-          <div class="grow" style="min-width:200px"><b>${esc(v.title)}</b><div class="muted">${esc(v.game_name || "")} · ${v.file_mb ? v.file_mb + " MB" : "Short"}</div></div>
+        <div class="row" style="gap:14px;align-items:center;flex-wrap:wrap"><img alt="" loading="lazy" src="/media/${v.id}/thumb" style="width:${v.kind === "short" ? 54 : 128}px;height:${v.kind === "short" ? 96 : 72}px;object-fit:cover;border-radius:8px">
+          <div class="grow" style="min-width:200px"><b>${esc(v.title)}</b><div class="muted">${esc(v.game_name || "")} · ${kindLabel(v.kind)}${v.file_mb ? " · " + v.file_mb + " MB" : ""}${v.kind === "short" ? "" : " · compilations can go on Twitch"}</div></div>
           <a class="btn" href="/media/${v.id}/video?download=1">Download video</a></div>
-        <div class="socgrid">${SOCIAL_LIST.map(([p, name, open, openText, how]) => { const s = v.social[p] || {status: "pending"}; return `
-          <div class="socbox" data-p="${p}"><div class="row"><b class="grow">${name}</b>${(v.social_ai || {})[p] ? `<span class="badge running" title="Written by the AI">AI</span>` : ""}${s.status === "posted" ? `<span class="badge uploaded">Posted</span>` : s.status === "skipped" ? `<span class="badge declined">Skipped</span>` : `<span class="badge rendered">Waiting</span>`}</div>
-            <label>Caption for ${name}</label><textarea readonly rows="7">${esc(v.social_pack[p])}</textarea>
-            <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap"><button data-a="copy">Copy caption</button><button data-a="ai" title="${price.free ? "Free" : "Costs " + tok(price.rewrite) + " each time"}">Rewrite with AI${price.free ? "" : ` (${tok(price.rewrite)})`}</button>${(v.social_ai || {})[p] ? `<button data-a="orig">Back to the first caption</button>` : ""}<a class="btn" href="${open}" target="_blank" rel="noopener">${openText}</a></div>
-            <div class="muted" style="font-size:12.5px;margin:6px 0">${how}</div>
-            ${s.status === "pending" ? `<div class="row" style="gap:8px;flex-wrap:wrap"><input class="grow" data-f="url" placeholder="Link to the post (optional)"><button class="pri" data-a="done">Mark as posted</button><button data-a="skip">Skip</button></div>`
-              : `<div class="row" style="gap:8px">${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">Open the post</a>` : ""}<button data-a="undo">Undo</button></div>`}</div>`; }).join("")}</div></div>`).join("");
-    box.querySelectorAll(".card[data-id]").forEach(card => {
-      const id = card.dataset.id, v = list.find(x => x.id === id);
-      card.querySelectorAll(".socbox").forEach(sb => {
-        const p = sb.dataset.p;
+        <div class="socgrid">${platformsOf(v).map(pl => card(v, pl)).join("")}</div></div>`).join("");
+    box.querySelectorAll(".card[data-id]").forEach(cd => {
+      const id = cd.dataset.id, v = list.find(x => x.id === id);
+      cd.querySelectorAll(".socbox").forEach(sb => {
+        const p = sb.dataset.p, t = v.twitch_pack || {};
         sb.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => ({
-          copy: () => copy(v.social_pack[p]), ai: () => caption(id, p, "rewrite", sb.querySelector("[data-a=ai]")), orig: () => caption(id, p, "reset"), done: () => mark(id, p, "posted", (sb.querySelector("[data-f=url]") || {}).value),
-          skip: () => mark(id, p, "skipped"), undo: () => mark(id, p, "pending"),
+          copy: () => copy(v.social_pack[p]), ai: () => caption(id, p, "rewrite", sb.querySelector("[data-a=ai]")), orig: () => caption(id, p, "reset"),
+          ct: () => copy(t.title), cd: () => copy(t.description), cc: () => copy(t.category), cg: () => copy((t.tags || []).join(", ")),
+          done: () => mark(id, p, "posted", (sb.querySelector("[data-f=url]") || {}).value), skip: () => mark(id, p, "skipped"), undo: () => mark(id, p, "pending"),
         })[b.dataset.a]());
       });
     });

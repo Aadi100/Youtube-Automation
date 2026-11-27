@@ -343,7 +343,8 @@ def run_render(doc: Dict) -> None:
             desc = "\n".join(f"Original: {x.get('title') or ''} by {x.get('creator') or ''}\n{x.get('video_url') or ''}".strip() for x in credits[:5])
         vid = Video(user_id=uid, kind=kind, status="rendered", title=title, description=desc, tags=[], video_path=str(out), thumbnail_path=str(thumb) if thumb.is_file() else "",
                     audio_mode="original", clip_ids=[], game_name="Edited video", credits=credits, privacy_status="unlisted", upload_status="hold", edited=True, created_at=now(),
-                    export_preset=ep.export_of(data)["preset"], export_quality=ep.export_of(data)["quality"], edit_summary=risk.edit_summary(data)).save()
+                    export_preset=ep.export_of(data)["preset"], export_quality=ep.export_of(data)["quality"], edit_summary=risk.edit_summary(data),
+                    synthetic=bool((data.get("story") or {}).get("synthetic")), realistic=bool((data.get("story") or {}).get("realistic"))).save()
         from app.services import notification_service as notes
         from app.services import token_service as tokens
         tokens.charge_action(uid, "editor_render", ref=str(vid.id))        # only a finished, saved video is charged

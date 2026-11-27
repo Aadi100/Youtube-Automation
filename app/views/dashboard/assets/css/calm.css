@@ -128,3 +128,7 @@ b,strong,.pk b,.choice b,.kart+*{font-weight:650}
   nav.open a{min-height:44px!important}
   .navmore>summary{min-height:44px}
 }
+/* games: the old cover banner is gone, so the header sits inside the card (it used to be pulled up by 36px) */
+.gcard{padding-top:18px!important}
+.gcard>header{margin-top:0!important}
+.gcard header b{font-size:17px}

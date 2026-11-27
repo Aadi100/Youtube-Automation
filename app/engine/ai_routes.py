@@ -21,6 +21,8 @@ TEXT_TASKS = {   # id -> (what it is, what it does)
     "thumb-prompt": ("Picture prompt writer", "Writes a new image prompt for every thumbnail (Better and Best)."),
     "thumb-plan-text": ("Best plan from the facts", "Plans the Best thumbnail from the facts when Gemini cannot look at the frames."),
     "social-caption": ("Social captions", "Rewrites the TikTok, Instagram or Facebook caption when someone presses 'Rewrite with AI' (Other platforms page)."),
+    "story-ideas": ("Story ideas", "Turns what is trending into original story ideas (Story videos)."),
+    "story-script": ("Story script", "Writes (or splits) the script of a story video into scenes, with the picture and the camera for each scene."),
     "trending-theme": ("Trending theme", "Reads the titles of the fastest growing clips of a game and says what is hot right now (Trending mode)."),
 }
 VISION_TASKS = {   # Gemini only: these look at pictures

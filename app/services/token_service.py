@@ -36,6 +36,9 @@ DEFAULT_PRICING = {
     "twitch_source": 0.4,            # searching: every clip found on Twitch
     "kick_source": 0.4,              # searching: every clip found on Kick
     "email_send": 0.3,               # every email sent to a member
+    "story_script": 1.0,             # writing or splitting the script of a story video
+    "story_scene_video": 8.0,        # one scene made by an AI VIDEO model (the characters really move). The model costs real money per second: price it above your cost
+    "story_scene_motion": 0.3,       # one scene made from a picture with camera movement (no AI video model, cheap)
     "social_caption": 1.0,           # one 'Rewrite with AI' for a TikTok / Instagram / Facebook caption (a failed rewrite is never charged)
     "trend_short": 2.0,              # Trending mode: looking at what is growing fastest for the game first (a Short); charged only when the video is made
     "trend_compilation": 8.0,        # the same for a compilation
@@ -175,6 +178,8 @@ def price_event(e: Dict, p: Dict) -> float:
         return float(e.get("units") or 0) * p["server_per_video"]
     if k == "trend":
         return float(e.get("units") or 0) * (p["trend_compilation"] if prov == "compilation" else p["trend_short"])
+    if k == "story":                                              # a story video: the script, and every scene by the way it was made
+        return float(e.get("units") or 0) * float(p.get({"script": "story_script", "video": "story_scene_video", "motion": "story_scene_motion"}.get(prov, "story_script")) or 0)
     if k == "source":
         return float(e.get("units") or 0) * float(p.get({"twitch": "twitch_source", "kick": "kick_source"}.get(prov, "youtube_source")) or 0)
     return 0.0
@@ -286,6 +291,7 @@ ACTIONS = {   # price key -> (usage kind, provider, ledger reason, what to call 
     "research_run": ("research", "run", "Research run", "A research run"),
     "email_send": ("email", "send", "Email sent to you", "An email"),
     "social_caption": ("social", "caption", "AI caption for another platform", "An AI caption"),
+    "story_script": ("story", "script", "Story script", "A story script"),
 }
 
 

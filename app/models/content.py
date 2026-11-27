@@ -286,6 +286,16 @@ class EditSource(Doc):
     meta = {"collection": "edit_sources", "indexes": [("user_id", "-created_at")]}
 
 
+class StoryJob(Doc):
+    """One story video being made for a member (script -> pictures -> moving scenes -> narration -> a project in the editor). A queue shared by every member."""
+    user_id = StringField()
+    status = StringField(default="queued")        # queued | running | done | error | cancelled
+    step = StringField()
+    pct = IntField(default=0)
+    created_at = DateTimeField()
+    meta = {"collection": "story_jobs", "indexes": [("status", "created_at"), ("user_id", "-created_at")]}
+
+
 class ClipSnap(Doc):
     """How many views a Twitch clip had at one moment (spike alerts compare two looks)."""
     clip_id = StringField()

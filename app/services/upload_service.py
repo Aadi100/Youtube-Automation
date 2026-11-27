@@ -157,7 +157,7 @@ def _direct_upload(doc: dict, privacy: str) -> str:
     vp = inside_outputs(doc.get("video_path") or "")
     if not vp or not Path(vp).is_file():
         raise youtube_api.YTError("The video file is missing, so it cannot be uploaded.")
-    return youtube_api.upload_video(doc["user_id"], Path(vp), doc.get("title", ""), doc.get("description", ""), doc.get("tags") or [], privacy)
+    return youtube_api.upload_video(doc["user_id"], Path(vp), doc.get("title", ""), doc.get("description", ""), doc.get("tags") or [], privacy, synthetic=bool(doc.get("realistic")))
 
 
 def publish_video(doc: dict) -> tuple:
@@ -165,7 +165,7 @@ def publish_video(doc: dict) -> tuple:
     yt = doc.get("youtube_id") or ""
     if _direct(doc) and re.fullmatch(r"[\w-]{11}", yt):
         try:
-            youtube_api.set_privacy(doc["user_id"], yt, "public")
+            youtube_api.set_privacy(doc["user_id"], yt, "public", synthetic=bool(doc.get("realistic")))
         except youtube_api.YTError as e:
             return False, str(e)
         Video.update_where(id=doc["_id"], unset=("approve_token", "approve_expires"),

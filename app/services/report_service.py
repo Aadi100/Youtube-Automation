@@ -24,6 +24,7 @@ SERVICES = {
     ("trend", "short"): ("Trending search (Short)", "videos"), ("trend", "compilation"): ("Trending search (compilation)", "videos"),
     ("scan", "finder"): ("Clip Finder scans", "scans"), ("edit", "editor"): ("Editor renders", "renders"), ("research", "run"): ("Research runs", "runs"),
     ("storage", "disk"): ("Extra storage", "GB-days"), ("social", "caption"): ("AI captions for other platforms", "captions"),
+    ("story", "script"): ("Story scripts", "scripts"), ("story", "video"): ("Story scenes made by AI video", "scenes"), ("story", "motion"): ("Story scenes with camera movement", "scenes"),
 }
 
 

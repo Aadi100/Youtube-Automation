@@ -335,7 +335,7 @@ async function settings() {
     ["Parts that run on your own computer (0 = free)", [["tts_per_1k_chars", "Voice, per 1,000 characters"], ["whisper_per_min", "Captions, per minute of speech"], ["safety_local_per_clip", "Local safety check, per clip"]]],
     ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["server_per_video", "Server usage (every video made)"], ["trend_short", "Trending mode: Short"], ["trend_compilation", "Trending mode: compilation"]]],
     ["Searching for clips: every clip found", [["youtube_source", "YouTube clip"], ["twitch_source", "Twitch clip"], ["kick_source", "Kick clip"]]],
-    ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["email_send", "Each email sent to a member"], ["social_caption", "AI caption rewrite (Other platforms)"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
+    ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["email_send", "Each email sent to a member"], ["social_caption", "AI caption rewrite (Other platforms)"], ["story_script", "Story video: writing the script"], ["story_scene_video", "Story video: one scene made by AI video (costs real money)"], ["story_scene_motion", "Story video: one scene with camera movement"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
     ["Uploading to YouTube, each", [["upload_short", "Short"], ["upload_compilation", "Compilation"]]],
     ["Reserve taken when a video starts (the unused part comes back)", [["hold_short", "Short"], ["hold_compilation", "Compilation"]]],
     ["Members", [["signup_bonus", "Welcome gift (tokens)"], ["daily_uploads", "Uploads per member per day"]]]];
@@ -505,6 +505,16 @@ async function settings() {
       sb.querySelectorAll("[data-mk]").forEach(b => b.onclick = guard(async () => { b.disabled = true; b.textContent = "Starting…"; await api(`/api/spikes/${b.dataset.mk}/make`, {method: "POST"}); toast("A Short is being made. See Make a video for its progress."); loadSpikes(); }));
     });
     loadSpikes();
+    if (ME.role === "owner") {                                  // the owner's rules for story videos
+      box.insertAdjacentHTML("beforeend", `<h2 style="margin-top:26px">Story video rules (owner)</h2><div id="storyrules" class="muted">Loading…</div>`);
+      const st = await api("/api/stories/settings"), rb = $("#storyrules"); rb.className = "";
+      rb.innerHTML = `<div class="audnote">AI video (the characters really move) costs real money for every second of video, so it is off for members until you switch it on. Set the price a member pays for it in Settings → Pricing (Story video).</div>
+        <div class="row" style="gap:14px;align-items:flex-start;margin:12px 0"><label class="switch"><input type="checkbox" id="sr_vid" ${st.members_video ? "checked" : ""}><span></span></label><div><b>Let members use AI video</b><div class="muted">You can always use it yourself.</div></div></div>
+        <div class="pmgrid"><div><label>Story videos a member may make a day</label><input type="number" id="sr_day" min="0" max="50" value="${st.daily_limit}"></div><div><label>AI video scenes a member may make a day</label><input type="number" id="sr_vpd" min="0" max="200" value="${st.video_per_day}"></div>
+          <div><label>Most AI video scenes in one story</label><input type="number" id="sr_max" min="0" max="12" value="${st.max_video_scenes}"></div></div>
+        <div class="row" style="gap:12px;align-items:center;margin-top:10px"><button class="pri" id="sr_save">Save the rules</button><span class="muted" id="sr_msg"></span></div>`;
+      $("#sr_save").onclick = guard(async () => { await api("/api/stories/settings", {method: "PUT", body: {members_video: $("#sr_vid").checked, daily_limit: +$("#sr_day").value, video_per_day: +$("#sr_vpd").value, max_video_scenes: +$("#sr_max").value}}); toast("Saved"); $("#sr_msg").textContent = "Saved"; });
+    }
   });
   const loadTrend = guard(async () => {
     const box = $("#trendcfg"); if (!box) return;

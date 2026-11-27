@@ -249,7 +249,7 @@ def _clean(title: str, description: str, tags: List[str]) -> tuple:
     return t, d, out
 
 
-def upload_video(user_id, path: Path, title: str, description: str, tags: List[str], privacy: str = "unlisted") -> str:
+def upload_video(user_id, path: Path, title: str, description: str, tags: List[str], privacy: str = "unlisted", synthetic: bool = False) -> str:
     """Resumable upload. Returns the YouTube video id."""
     if not can_upload():
         raise YTError("YouTube's daily upload limit is used up. It will continue tomorrow.", 403, "quotaExceeded")
@@ -259,7 +259,7 @@ def upload_video(user_id, path: Path, title: str, description: str, tags: List[s
     t, d, tg = _clean(title, description, tags)
     meta = {"snippet": {"title": t, "description": d, "tags": tg, "categoryId": "20"},
             "status": {"privacyStatus": privacy if privacy in ("public", "unlisted", "private") else "unlisted",
-                       "selfDeclaredMadeForKids": False, "embeddable": True, "publicStatsViewable": True}}
+                       "selfDeclaredMadeForKids": False, "embeddable": True, "publicStatsViewable": True, **({"containsSyntheticMedia": True} if synthetic else {})}}
     r = requests.post(f"{UPLOAD}/videos", params={"uploadType": "resumable", "part": "snippet,status"}, json=meta, timeout=60,
                       headers={"Authorization": f"Bearer {token}", "X-Upload-Content-Length": str(total), "X-Upload-Content-Type": "video/mp4"})
     if r.status_code != 200 or not r.headers.get("Location"):
@@ -336,10 +336,10 @@ def set_thumbnail(user_id, video_id: str, image: Path) -> None:
     quota_use(UNITS["thumbnail"])
 
 
-def set_privacy(user_id, video_id: str, privacy: str) -> None:
+def set_privacy(user_id, video_id: str, privacy: str, synthetic: bool = False) -> None:
     token = access_token(user_id)
     body = {"id": video_id, "status": {"privacyStatus": privacy, "embeddable": True, "publicStatsViewable": True, "license": "youtube",
-                                       "selfDeclaredMadeForKids": False}}
+                                       "selfDeclaredMadeForKids": False, **({"containsSyntheticMedia": True} if synthetic else {})}}
     r = requests.put(f"{API}/videos", params={"part": "status"}, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=60)
     if r.status_code != 200:
         _raise(r, "publish")

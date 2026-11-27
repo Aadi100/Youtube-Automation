@@ -203,6 +203,9 @@ def clean(data, infos: Dict[str, Dict], music_ok: Optional[Callable[[str], bool]
                       "captions": bool(c.get("captions")), "texts": texts})
     audio = data.get("audio") if isinstance(data.get("audio"), dict) else {}
     out = {"aspect": aspect, "clips": clips, "audio": {"music": clean_music(audio.get("music"), music_ok)}, "export": export_of(data)}
+    st = data.get("story") if isinstance(data.get("story"), dict) else None
+    if st:                                       # made by the Story videos feature: the finished video is marked as AI-made (and as realistic, which YouTube wants labelled)
+        out["story"] = {"synthetic": bool(st.get("synthetic", True)), "realistic": bool(st.get("realistic"))}
     if total_seconds(out) > editor.MAX_OUTPUT_SECONDS:
         raise ValueError(f"A finished video can be up to {editor.MAX_OUTPUT_SECONDS // 60} minutes. Shorten some clips.")
     return out
