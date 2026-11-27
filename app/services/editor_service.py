@@ -4,6 +4,7 @@ Nothing here costs tokens: cutting, layout, silence and face detection and capti
 into the member's Videos list, held for their review (it is never uploaded by itself).
 """
 import json
+import os
 import re
 import secrets
 import shutil
@@ -19,10 +20,40 @@ from app.engine import discovery, editor
 from app.models import EditSource, Video, now, oid
 
 UPLOAD_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
+AUDIO_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"}
+MAX_AUDIO = 60 * 1024 ** 2
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+MAX_IMAGE = 8 * 1024 ** 2
+MAX_IMAGE_SIDE = 4096            # a bigger picture is refused (a decompression bomb is a small file that unpacks to a huge picture)
+KEEP_IMAGES = 20
 MAX_UPLOAD = 2 * 1024 ** 3
 MAX_SOURCE_SECONDS = 3 * 3600
 MAX_LINK_SECONDS = 20 * 60
 KEEP_SOURCES = 8
+
+
+def quota_bytes() -> int:
+    """How much disk one member's uploads and downloaded parts may use in the editor (finished videos are not counted). EDITOR_QUOTA_GB, default 6."""
+    try:
+        return int(float(os.environ.get("EDITOR_QUOTA_GB") or 6) * 1024 ** 3)
+    except ValueError:
+        return 6 * 1024 ** 3
+
+
+def used_bytes(uid) -> int:
+    total = 0
+    for d in EditSource.find_all(user_id=str(uid)):
+        if d.get("origin") != "video" and d.get("path"):
+            try:
+                total += Path(d["path"]).stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def _check_room(uid, need: int = 0) -> None:
+    if used_bytes(uid) + need > quota_bytes():
+        raise ValueError(f"Your editor storage is full ({quota_bytes() // 1024 ** 3} GB). Delete a video you no longer need, then try again.")
 LINK_RE = re.compile(r"^https://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?v=|shorts/|live/)[\w\-]{6,15}|youtu\.be/[\w\-]{6,15}|twitch\.tv/videos/\d{5,12}"
                      r"|twitch\.tv/[\w]{3,25}/(?:clip|video)/[\w\-]+|clips\.twitch\.tv/[\w\-]+|kick\.com/video/[0-9a-fA-F\-]{8,40}"
                      r"|kick\.com/[\w\-]{2,40}/(?:videos|clips)/[\w\-]+)[\w\-&=%.?/]*$")
@@ -65,13 +96,129 @@ def get_source(uid, sid: str, is_owner: bool = False) -> Optional[Dict]:
 
 
 def list_sources(uid) -> List[Dict]:
-    return [view(d) for d in EditSource.find_all(user_id=str(uid), order=("-created_at",), limit=KEEP_SOURCES) if d.get("path") and Path(d["path"]).is_file()]
+    """The member's videos (audio files for music are listed separately)."""
+    docs = [d for d in EditSource.find_all(user_id=str(uid), order=("-created_at",)) if d.get("origin") not in ("audio", "image")][:KEEP_SOURCES]
+    return [view(d) for d in docs if d.get("path") and Path(d["path"]).is_file()]
+
+
+# ---------------------------------------------------------------- music: the studio's library and the member's own audio files
+def music_library() -> List[Dict]:
+    from app.config import MUSIC_DIR
+    from app.runtime import MUSIC_EXT
+    return [{"ref": f"lib:{p.name}", "name": p.stem, "mb": round(p.stat().st_size / 1e6, 1)} for p in sorted(MUSIC_DIR.iterdir()) if p.suffix.lower() in MUSIC_EXT]
+
+
+def list_audio(uid) -> List[Dict]:
+    docs = [d for d in EditSource.find_all(user_id=str(uid), order=("-created_at",)) if d.get("origin") == "audio" and d.get("path") and Path(d["path"]).is_file()]
+    return [{"ref": f"src:{d['_id']}", "id": str(d["_id"]), "name": d.get("title") or "Audio", "duration": d.get("duration")} for d in docs]
+
+
+def resolve_music(uid, ref: str) -> Optional[Path]:
+    """The file behind a music reference, if this member may use it: a track of the studio's library, or an audio file of their own. Never anything else."""
+    ref = str(ref or "")
+    if ref.startswith("lib:"):
+        from app.config import MUSIC_DIR
+        from app.runtime import MUSIC_EXT
+        name = ref[4:]
+        p = (MUSIC_DIR / name).resolve()
+        return p if name == Path(name).name and p.parent == MUSIC_DIR.resolve() and p.suffix.lower() in MUSIC_EXT and p.is_file() else None
+    if ref.startswith("src:"):
+        try:
+            d = EditSource.find_one(id=oid(ref[4:]))
+        except Exception:
+            return None
+        if d and d.get("user_id") == str(uid) and d.get("origin") == "audio" and d.get("path") and Path(d["path"]).is_file():
+            return Path(d["path"])
+    return None
+
+
+# ---------------------------------------------------------------- pictures for stickers and logos (the member's own)
+def list_images(uid) -> List[Dict]:
+    docs = [d for d in EditSource.find_all(user_id=str(uid), order=("-created_at",)) if d.get("origin") == "image" and d.get("path") and Path(d["path"]).is_file()]
+    return [{"ref": f"img:{d['_id']}", "id": str(d["_id"]), "name": d.get("title") or "Picture", "width": d.get("width"), "height": d.get("height")} for d in docs]
+
+
+def resolve_image(uid, ref: str) -> Optional[Path]:
+    """The file behind a sticker reference, if it is this member's own picture. Never anything else."""
+    ref = str(ref or "")
+    if not re.fullmatch(r"img:[0-9a-f]{24}", ref):
+        return None
+    try:
+        d = EditSource.find_one(id=oid(ref[4:]))
+    except Exception:
+        return None
+    if d and d.get("user_id") == str(uid) and d.get("origin") == "image" and d.get("path") and Path(d["path"]).is_file():
+        return Path(d["path"])
+    return None
+
+
+def save_image(uid, name: str, stream, length: int) -> Dict:
+    """A picture for stickers and logos. It is opened and saved again as a clean PNG (so nothing but the picture is kept), at most 1024 pixels on the long side."""
+    import io
+    from PIL import Image
+    ext = Path(name or "").suffix.lower()
+    if ext not in IMAGE_EXT:
+        raise ValueError("Upload a .png, .jpg, .webp or .gif picture.")
+    if not 0 < length <= MAX_IMAGE:
+        raise ValueError("That picture is too big (up to 8 MB).")
+    _check_room(uid, length)
+    data = stream.read(length)
+    if len(data) < length:
+        raise ValueError("The upload was cut off. Try again.")
+    try:
+        im = Image.open(io.BytesIO(data))
+        if max(im.size) > MAX_IMAGE_SIDE:
+            raise ValueError(f"That picture is too large ({MAX_IMAGE_SIDE} pixels on a side at most).")
+        im.seek(0)
+        im = im.convert("RGBA")
+    except ValueError:
+        raise
+    except Exception:
+        raise ValueError("That file could not be read as a picture.")
+    im.thumbnail((1024, 1024))
+    out = src_dir(uid) / f"im_{secrets.token_hex(6)}.png"
+    im.save(out, "PNG")
+    return _add(uid, Path(name).stem[:100] or "Picture", out, "image", {"duration": 0.0, "width": im.width, "height": im.height, "has_audio": False})
+
+
+def save_audio(uid, name: str, stream, length: int) -> Dict:
+    ext = Path(name or "").suffix.lower()
+    if ext not in AUDIO_EXT:
+        raise ValueError("Upload an .mp3, .wav, .m4a, .ogg, .flac or .aac file.")
+    if not 0 < length <= MAX_AUDIO:
+        raise ValueError("That audio file is too big (up to 60 MB).")
+    _check_room(uid, length)
+    out = src_dir(uid) / f"au_{secrets.token_hex(6)}{ext}"
+    left = length
+    try:
+        with open(out, "wb") as f:
+            while left > 0 and (chunk := stream.read(min(1 << 20, left))):
+                f.write(chunk)
+                left -= len(chunk)
+        if left > 0:
+            raise ValueError("The upload was cut off. Try again.")
+        dur = editor_project_audio_length(out)
+    except Exception:
+        out.unlink(missing_ok=True)
+        raise
+    return _add(uid, Path(name).stem[:100] or "Music", out, "audio", {"duration": dur, "width": 0, "height": 0, "has_audio": True})
+
+
+def editor_project_audio_length(p: Path) -> float:
+    from app.engine import edit_project
+    return edit_project.probe_audio(p)
 
 
 def _prune(uid) -> None:
     """Keep the newest few sources; older downloads and uploads are deleted from the disk (finished videos are never touched)."""
-    docs = EditSource.find_all(user_id=str(uid), order=("-created_at",))
-    for d in docs[KEEP_SOURCES:]:
+    from app.services import edit_project_service as projects
+    keep = projects.in_use(uid)                      # a video that a project uses is never cleaned away
+    everything = EditSource.find_all(user_id=str(uid), order=("-created_at",))
+    docs = ([d for d in everything if d.get("origin") not in ("audio", "image")][KEEP_SOURCES:] + [d for d in everything if d.get("origin") == "audio"][KEEP_SOURCES:]
+            + [d for d in everything if d.get("origin") == "image"][KEEP_IMAGES:])      # videos, audio files and pictures are counted apart
+    for d in docs:
+        if str(d["_id"]) in keep:
+            continue
         if d.get("origin") != "video" and d.get("path"):
             _unlink(d["path"])
             _unlink(strip_path(d))
@@ -91,6 +238,7 @@ def save_upload(uid, name: str, stream, length: int) -> Dict:
         raise ValueError("Upload an .mp4, .mov, .mkv, .webm or .m4v video.")
     if not 0 < length <= MAX_UPLOAD:
         raise ValueError("That file is too big (up to 2 GB).")
+    _check_room(uid, length)
     out = src_dir(uid) / f"up_{secrets.token_hex(6)}{ext}"
     left = length
     try:
@@ -137,6 +285,9 @@ def delete_source(uid, sid: str) -> bool:
     doc = get_source(uid, sid)
     if not doc:
         return False
+    from app.services import edit_project_service as projects
+    if sid in projects.in_use(uid):
+        raise ValueError("This video is used in one of your projects. Remove it from the project first.")
     if doc.get("origin") != "video":
         _unlink(doc["path"])
     _unlink(strip_path(doc))
@@ -200,6 +351,7 @@ def start_link(uid, url: str, start, end, safety_on: bool = True) -> str:
         raise ValueError(f"Choose a part between 5 seconds and {MAX_LINK_SECONDS // 60} minutes long.")
     if _active(uid, "download"):
         raise ValueError("A download is already running. Wait for it to finish.")
+    _check_room(uid)
 
     def work(report):
         report(5, "Reading the link…")
@@ -222,7 +374,7 @@ def start_link(uid, url: str, start, end, safety_on: bool = True) -> str:
         report(90, "Preparing…")
         pr = editor.probe(out)
         credit = {"creator": who, "title": title, "platform": "twitch" if "twitch" in url else "kick" if "kick.com" in url else "youtube",
-                  "video_url": info.get("webpage_url") or url, "channel_url": info.get("channel_url") or info.get("uploader_url")}
+                  "video_url": info.get("webpage_url") or url, "channel_url": info.get("channel_url") or info.get("uploader_url"), "views": int(info.get("view_count") or 0)}
         return {"source": _add(uid, title, out, "link", pr, credit=credit)}
     return start_task(uid, "download", work, _DOWNLOAD)
 

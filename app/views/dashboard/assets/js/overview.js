@@ -63,13 +63,13 @@ function renderApprovals(list) {
       <div class="acts"><button class="pri" data-ap="${v.id}">${v.youtube_id ? "Approve &amp; publish" : "Approve &amp; upload"}</button><button class="dng" data-dc="${v.id}">Decline</button></div></div>`).join("")}</section>`
     : `<section class="card"><div class="allclear"><span class="ic">${svg("check")}</span><div><b style="color:var(--text)">You're all caught up</b><div>New videos appear here the moment they are ready for your decision.</div></div></div></section>`;
   const act = (attr, path, ask, doing) => box.querySelectorAll(`[${attr}]`).forEach(b => b.onclick = async () => {
-    if (!confirm(ask)) return;
+    if (!confirm(typeof ask === "function" ? ask(b.getAttribute(attr)) : ask)) return;
     box.dataset.busy = "1"; b.disabled = true; b.textContent = doing;
     try { const r = await api(`/api/videos/${b.getAttribute(attr)}/${path}`, {method: "POST"}); toast(r.message); }
     catch (e) { toast(e.message, true); }
     delete box.dataset.busy; box.dataset.sig = ""; nav();
   });
-  act("data-ap", "publish", "Put this video on YouTube as PUBLIC now? (A rendered video is uploaded first and that can take a few minutes.)", "Working…");
+  act("data-ap", "publish", id => riskAsk(list.find(x => x.id === id), "Put this video on YouTube as PUBLIC now? (A rendered video is uploaded first and that can take a few minutes.)"), "Working…");
   act("data-dc", "decline", "Decline this video? It will never be published.", "Declining…");
   box.querySelectorAll("[data-open]").forEach(a => a.onclick = e => { e.preventDefault(); openVideo(a.dataset.open); });
 }

@@ -93,6 +93,15 @@ def maintenance() -> None:
             if time.time() - last["alert"] > 300:
                 last["alert"] = time.time()
                 _check_alerts()
+            if time.time() - last.setdefault("analytics", 0) > 6 * 3600:
+                last["analytics"] = time.time()
+                try:
+                    from app.services import analytics_service
+                    n = analytics_service.sync_all()
+                    if n:
+                        print(f"[studio] YouTube results updated for {n} video(s)")
+                except Exception as e:
+                    print(f"[studio] analytics run failed: {type(e).__name__}")
             if time.time() - last["storage"] > 3600:
                 last["storage"] = time.time()
                 billed = storage.bill_extra_storage()
@@ -124,6 +133,10 @@ def boot() -> None:
             threading.Thread(target=fn, daemon=True).start()
         for _ in range(max(1, int(os.environ.get("UPLOAD_THREADS") or 2))):
             threading.Thread(target=uploader, daemon=True).start()
+        from app.services import edit_project_service
+        edit_project_service.start_workers()          # the editor's render queue (projects)
+        from app.services import spike_service
+        spike_service.start()                         # spike alerts: looks at Twitch for the games of members who switched them on
 
         def _upload_backlog():  # rendered videos that never reached YouTube (e.g. made while n8n was off) go up now
             time.sleep(25)

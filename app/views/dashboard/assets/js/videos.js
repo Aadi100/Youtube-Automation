@@ -32,6 +32,8 @@ const openVideo = guard(async id => {
     <div class="media" style="margin-top:14px"><video controls preload="metadata" src="/media/${v.id}/video"></video><img alt="Thumbnail" src="/media/${v.id}/thumb"></div>
     ${canAct ? `<div class="dsec"><h3>Publishing</h3><p class="muted" style="margin:2px 0 12px">${v.youtube_id ? "Uploaded as Unlisted. Check YouTube Studio → Checks, then publish." : v.upload_status === "hold" ? "This video is waiting for you. Check it, change the audio below if you want, then upload it." : "Not on YouTube yet. Approving uploads it and makes it Public."}</p>
       <div class="dactions">${!v.youtube_id && v.status === "rendered" && ["hold", "needs_youtube", "error"].includes(v.upload_status || "hold") ? '<button id="upunl" title="Goes to YouTube as Unlisted, so you can check it there first">Upload as Unlisted</button>' : ""}<button class="pri" id="pub">${v.youtube_id ? "Approve & publish" : "Approve & upload"}</button><button class="dng" id="dcl">Decline</button></div></div>` : ""}
+    ${riskBox(v)}
+    ${resultsBox(v)}
     ${v.receipt ? `<div class="dsec"><h3>Cost of this video</h3><table>${v.receipt.map(r => `<tr><td>${esc(r.label)}</td><td class="muted">${r.qty != null && r.unit ? `${r.qty} ${esc(r.unit)}` : ""}</td><td style="text-align:right">${r.tokens} tokens</td></tr>`).join("")}
       ${v.upload_receipt ? `<tr><td>Upload to YouTube</td><td class="muted">1 upload</td><td style="text-align:right">${v.upload_receipt.tokens} tokens</td></tr>` : ""}
       <tr><td><b>Total</b></td><td></td><td style="text-align:right"><b>${Math.round(((v.cost_tokens || 0) + (v.upload_cost_tokens || 0)) * 100) / 100} tokens</b></td></tr></table>
@@ -94,7 +96,7 @@ const openVideo = guard(async id => {
     finally { $("#mythumb").disabled = false; $("#mythumb").textContent = "Upload my own thumbnail"; $("#mythumbf").value = ""; }
   });
   if ($("#pub")) $("#pub").onclick = guard(async () => {
-    if (!confirm("Put this video on YouTube as PUBLIC now?")) return;
+    if (!confirm(riskAsk(v, "Put this video on YouTube as PUBLIC now?"))) return;
     $("#pub").disabled = true; $("#pub").textContent = "Working…";
     try { const r = await api(`/api/videos/${id}/publish`, {method: "POST"}); toast(r.message); closeDrawer(); nav(); }
     catch (e) { $("#pub").disabled = false; $("#pub").textContent = "Try again"; throw e; }

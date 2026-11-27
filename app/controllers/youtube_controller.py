@@ -34,6 +34,17 @@ def h_yt_connect(h):
     h.send_json(200, {"url": youtube_api.auth_url(_redirect_uri(h), state)})
 
 
+def h_yt_connect_analytics(h):
+    """Ask the member for the ONE extra permission (read-only Analytics). The upload permission they already gave is kept."""
+    if not youtube_api.configured():
+        raise ValueError("The owner has not set up Google sign-in yet (Settings -> Accounts & keys -> Google client ID / secret).")
+    if not youtube_api.get_account(h.uid):
+        raise ValueError("Connect your YouTube channel first (Settings -> YouTube), then allow Analytics.")
+    state = pysecrets.token_urlsafe(24)
+    OAuthState(id=state, user_id=h.uid, t=now()).save(force_insert=True)
+    h.send_json(200, {"url": youtube_api.auth_url(_redirect_uri(h), state, scopes=[youtube_api.ANALYTICS_SCOPE])})
+
+
 def _redirect(h, url: str) -> None:
     h.send_response(302)
     h.send_header("Location", url)
@@ -66,6 +77,7 @@ def h_yt_disconnect(h):
 ROUTES = [
     (r"/api/youtube/status", "GET", h_yt_status),
     (r"/api/youtube/connect", "POST", h_yt_connect),
+    (r"/api/youtube/connect-analytics", "POST", h_yt_connect_analytics),
     (r"/api/youtube/callback", "GET", h_yt_callback),
     (r"/api/youtube/disconnect", "POST", h_yt_disconnect),
 ]

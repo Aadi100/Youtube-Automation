@@ -23,7 +23,7 @@ SERVICES = {
     ("email", "send"): ("Emails sent to members", "emails"), ("server", ""): ("Server usage", "videos"), ("server", "studio"): ("Server usage", "videos"),
     ("trend", "short"): ("Trending search (Short)", "videos"), ("trend", "compilation"): ("Trending search (compilation)", "videos"),
     ("scan", "finder"): ("Clip Finder scans", "scans"), ("edit", "editor"): ("Editor renders", "renders"), ("research", "run"): ("Research runs", "runs"),
-    ("storage", "disk"): ("Extra storage", "GB-days"),
+    ("storage", "disk"): ("Extra storage", "GB-days"), ("social", "caption"): ("AI captions for other platforms", "captions"),
 }
 
 

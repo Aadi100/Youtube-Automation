@@ -182,7 +182,7 @@ class Video(Doc):
         doc.update({"game_id": manifest.get("game_id"), "game_name": manifest.get("game_name"),
                     "credits": manifest.get("credits", []), "thumb_style": manifest.get("thumb_style"),
                     "content_type": manifest.get("content_type"), "thumb_recipe": manifest.get("thumb_recipe"),
-                    "thumb_tier": manifest.get("thumb_tier")})
+                    "thumb_tier": manifest.get("thumb_tier"), "context_card": bool(manifest.get("context_card"))})
         doc.update({"status": "rendered", "privacy_status": manifest.get("privacy_status", "unlisted"),
                     "youtube_id": None, "twitch": {"status": "pending"},  # twitch is uploaded by hand
                     "created_at": now(), "job_id": job_id, "user_id": scope_uid(uid)})
@@ -284,6 +284,57 @@ class EditSource(Doc):
     path = StringField()
     created_at = DateTimeField()
     meta = {"collection": "edit_sources", "indexes": [("user_id", "-created_at")]}
+
+
+class ClipSnap(Doc):
+    """How many views a Twitch clip had at one moment (spike alerts compare two looks)."""
+    clip_id = StringField()
+    category = StringField()
+    views = IntField()
+    t = FloatField()
+    meta = {"collection": "clip_snaps", "indexes": [("clip_id", "-t"), "t"]}
+
+
+class SpikeAlert(Doc):
+    """One clip that took off, told to one member (once)."""
+    user_id = StringField()
+    clip_id = StringField()
+    category = StringField()
+    status = StringField(default="new")           # new | making | made | skipped
+    created_at = DateTimeField()
+    meta = {"collection": "spike_alerts", "indexes": [{"fields": ["user_id", "clip_id"], "unique": True}, ("user_id", "-created_at")]}
+
+
+class Permission(Doc):
+    """A creator's permission to clip their content (or a note that it was asked for or refused): who, when, and the proof. One per member and creator."""
+    user_id = StringField()
+    platform = StringField()                      # twitch | youtube | kick | other
+    creator = StringField()                       # the name people know them by
+    key = StringField()                           # the creator in one lower-case form (see permission_service.keys_for)
+    status = StringField(default="allowed")       # allowed | asked | declined
+    created_at = DateTimeField()
+    updated_at = DateTimeField()
+    meta = {"collection": "permissions", "indexes": [("user_id", "platform", "key"), ("user_id", "-updated_at")]}
+
+
+class EditProject(Doc):
+    """A timeline of several clips a member is putting together in the editor. `version` goes up with every save, so two open tabs can never overwrite each other unnoticed."""
+    user_id = StringField()
+    title = StringField()
+    version = IntField(default=1)
+    created_at = DateTimeField()
+    updated_at = DateTimeField()
+    meta = {"collection": "edit_projects", "indexes": [("user_id", "-updated_at")]}
+
+
+class EditRender(Doc):
+    """One request to render a project: a queue shared by every member. queued -> running -> done | error | cancelled. The worker service picks them up, oldest first."""
+    user_id = StringField()
+    project_id = StringField()
+    status = StringField(default="queued")
+    pct = IntField(default=0)
+    created_at = DateTimeField()
+    meta = {"collection": "edit_renders", "indexes": [("status", "created_at"), ("user_id", "-created_at"), ("project_id", "-created_at")]}
 
 
 # ---- the clip finder -------------------------------------------------------

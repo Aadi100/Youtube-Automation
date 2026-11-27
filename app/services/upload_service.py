@@ -331,11 +331,34 @@ def upload_and_publish(doc: dict, privacy: str = "public") -> tuple:
     return True, f"Uploaded and published: https://youtu.be/{yt}" if pub else f"Uploaded as Unlisted: https://youtu.be/{yt}"
 
 
+def _hold_risky(doc: dict) -> bool:
+    """A video that looks like reused content is NOT put on YouTube by itself (the member decides). On by default; a member can switch it off in Settings -> What to clip."""
+    try:
+        from app.engine import clipcfg, risk
+        from app.services import permission_service
+        if not clipcfg.risk_hold_on(doc.get("user_id")):
+            return False
+        r = risk.assess(doc, permission_service.allowed_map(doc.get("user_id")))
+        if r["level"] != "high":
+            return False
+        Video.update_where(id=doc["_id"], fields={"upload_status": "hold", "risk_held": True, "risk_score": r["score"]})
+        why = (r["reasons"][0]["text"] if r["reasons"] else "It looks like reused content.")
+        notes.notify(doc.get("user_id"), "risk", "A video was held back for your review", f"{doc.get('title') or 'Your video'}: {why} Open it to see how to improve it, or upload it yourself.",
+                     "#/videos", "warn", key=f"risk-{doc['_id']}")
+        print(f"[studio] auto-upload held for review (reused-content risk {r['score']}): {str(doc.get('title'))[:60]}")
+        return True
+    except Exception as e:
+        print(f"[studio] risk check failed (the video goes up as usual): {e}")
+        return False
+
+
 def auto_upload(vid: str) -> None:
     """Every finished video goes to YouTube by itself as Unlisted, then you get the approval email."""
     try:
         doc = Video.find_one(id=oid(vid))
         if not doc or doc.get("youtube_id") or doc.get("status") != "rendered":
+            return
+        if _hold_risky(doc):
             return
         if _direct(doc):   # the upload queue takes it from here (it respects YouTube's daily limit and is fair between members)
             Video.update_where(id=doc["_id"], fields={"upload_status": "queued", "upload_privacy": "unlisted"})

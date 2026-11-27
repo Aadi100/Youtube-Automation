@@ -6,6 +6,7 @@ from flask import Blueprint
 from app.engine import editor
 from app.http import register
 from app.models import Video, oid
+from app.services import edit_project_service as ed_projects
 from app.services import editor_service as ed
 from app.utils.envfile import read_env
 
@@ -22,6 +23,10 @@ def _safe(fn):
     def wrap(h, *a):
         try:
             return fn(h, *a)
+        except ed_projects.Conflict as e:
+            h.send_json(409, {"error": "This project was changed somewhere else (another tab or device). Reload it to see the newest version.", "current": e.current})
+        except LookupError:
+            h.send_json(404, {"error": "That project is not there any more."})
         except ValueError as e:
             h.send_json(400, {"error": str(e)})
         except RuntimeError as e:
@@ -125,12 +130,130 @@ def h_render(h, sid):
     h.send_json(202, {"task": ed.start_render(h.uid, doc, d.get("spec") or {}, d.get("title") or "", str(d.get("description") or "")[:4000])})
 
 
+@_safe
 def h_delete(h, sid):
     ok = ed.delete_source(h.uid, sid)
     h.send_json(200 if ok else 404, {"ok": ok})
 
 
+# ---- music for projects: the studio's library, and audio files the member uploaded
+def h_audio(h):
+    h.send_json(200, {"library": ed.music_library(), "mine": ed.list_audio(h.uid), "max_mb": ed.MAX_AUDIO // 1024 // 1024})
+
+
+@_safe
+def h_audio_upload(h):
+    n = int(h.headers.get("Content-Length") or 0)
+    h.send_json(200, {"source": ed.save_audio(h.uid, h.q.get("name") or "music.mp3", h.rfile, n)})
+
+
+def h_audio_file(h):
+    p = ed.resolve_music(h.uid, h.q.get("ref") or "")
+    if not p:
+        return h.send_json(404, {"error": "That track is not available."})
+    h.send_file(p)
+
+
+def h_export_options(h):
+    from app.engine import edit_project as ep
+    h.send_json(200, {"presets": [{"id": k, **v} for k, v in ep.PRESETS.items()], "quality": [{"id": k, "label": v[2]} for k, v in ep.QUALITY.items()]})
+
+
+# ---- pictures for stickers and logos (the member's own)
+def h_images(h):
+    h.send_json(200, {"images": ed.list_images(h.uid), "max_mb": ed.MAX_IMAGE // 1024 // 1024})
+
+
+@_safe
+def h_image_upload(h):
+    n = int(h.headers.get("Content-Length") or 0)
+    h.send_json(200, {"source": ed.save_image(h.uid, h.q.get("name") or "logo.png", h.rfile, n)})
+
+
+def h_image_file(h):
+    p = ed.resolve_image(h.uid, h.q.get("ref") or "")
+    if not p:
+        return h.send_json(404, {"error": "That picture is not available."})
+    h.send_file(p, "image/png")
+
+
+# ---- projects: a timeline of several clips (every one belongs to the member who made it)
+def h_projects(h):
+    h.send_json(200, ed_projects.list_projects(h.uid))
+
+
+@_safe
+def h_project_new(h):
+    d = h.body_json()
+    h.send_json(200, ed_projects.create(h.uid, d.get("title") or "", str(d.get("source") or "")))
+
+
+@_safe
+def h_project(h, pid):
+    p = ed_projects.get(h.uid, pid)
+    h.send_json(200 if p else 404, p or {"error": "That project is not there any more."})
+
+
+@_safe
+def h_project_save(h, pid):
+    d = h.body_json()
+    try:
+        version = int(d.get("version"))
+    except (TypeError, ValueError):
+        raise ValueError("The project version is missing. Reload the page.")
+    h.send_json(200, ed_projects.save(h.uid, pid, version, d.get("title"), d.get("data")))
+
+
+@_safe
+def h_project_rename(h, pid):
+    h.send_json(200, ed_projects.rename_only(h.uid, pid, str(h.body_json().get("title") or "")))
+
+
+@_safe
+def h_project_copy(h, pid):
+    h.send_json(200, ed_projects.duplicate(h.uid, pid))
+
+
+@_safe
+def h_project_delete(h, pid):
+    ok = ed_projects.delete(h.uid, pid)
+    h.send_json(200 if ok else 404, {"ok": ok})
+
+
+@_safe
+def h_project_render(h, pid):
+    d = h.body_json()
+    h.send_json(202, {"render": ed_projects.enqueue(h.uid, pid, d.get("title") or "", d.get("description") or "")})
+
+
+def h_render_status(h, rid):
+    r = ed_projects.get_render(h.uid, rid)
+    h.send_json(200 if r else 404, r or {"error": "not found"})
+
+
+def h_render_cancel(h, rid):
+    r = ed_projects.cancel(h.uid, rid)
+    h.send_json(200 if r else 404, r or {"error": "not found"})
+
+
 ROUTES = [
+    (r"/api/editor/audio", "GET", h_audio),
+    (r"/api/editor/audio/upload", "POST", h_audio_upload),
+    (r"/api/editor/audio/file", "GET", h_audio_file),
+    (r"/api/editor/export-options", "GET", h_export_options),
+    (r"/api/editor/images", "GET", h_images),
+    (r"/api/editor/images/upload", "POST", h_image_upload),
+    (r"/api/editor/images/file", "GET", h_image_file),
+    (r"/api/editor/projects", "GET", h_projects),
+    (r"/api/editor/projects", "POST", h_project_new),
+    (r"/api/editor/projects/([0-9a-f]{24})", "GET", h_project),
+    (r"/api/editor/projects/([0-9a-f]{24})", "PUT", h_project_save),
+    (r"/api/editor/projects/([0-9a-f]{24})/title", "PUT", h_project_rename),
+    (r"/api/editor/projects/([0-9a-f]{24})", "DELETE", h_project_delete),
+    (r"/api/editor/projects/([0-9a-f]{24})/copy", "POST", h_project_copy),
+    (r"/api/editor/projects/([0-9a-f]{24})/render", "POST", h_project_render),
+    (r"/api/editor/renders/([0-9a-f]{24})", "GET", h_render_status),
+    (r"/api/editor/renders/([0-9a-f]{24})/cancel", "POST", h_render_cancel),
     (r"/api/editor/sources", "GET", h_sources),
     (r"/api/editor/sources/upload", "POST", h_upload),
     (r"/api/editor/from-video", "POST", h_from_video),

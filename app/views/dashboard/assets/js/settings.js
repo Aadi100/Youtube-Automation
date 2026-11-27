@@ -25,6 +25,8 @@ async function settings() {
      desc: "Choose which creators' clips you want: the country they live in and the language of their streams. Every account sets its own, and it only applies to your own videos."},
     {id: "trend", icon: "clips", title: "Trending mode",
      desc: "Make your videos from what is trending right now: the studio looks at the game first, ranks clips and videos by how fast they are growing and clips from the fastest risers. It costs a little extra per video. Your choice is the default on the Create page and is used for your scheduled videos."},
+    {id: "growth", icon: "usage", title: "Protection and growth",
+     desc: "Keep your channel safe from reused-content problems, choose how your commentary sounds, and let the studio learn from your YouTube results and watch for clips that take off."},
     {id: "saver", icon: "usage", title: "AI saver",
      desc: "Make the AI cost fewer tokens for your own videos: short answers, a limit for each video, pictures read at low resolution, and a memory so the same clip is never analysed twice. It is off until you switch it on. Every account chooses for itself."},
     {id: "src", icon: "clips", title: "Clip sources",
@@ -40,7 +42,7 @@ async function settings() {
     {id: "music", icon: "music", title: "Music",
      desc: "Royalty-free tracks used under the AI commentary. Only use tracks you have the licence for (for example the YouTube Audio Library)."},
   ];
-  const TABGROUP = {prefs: 0, yt: 0, src: 0, audme: 0, clip: 0, saver: 0, trend: 0, conn: 1, airoute: 1, ytx: 1, aud: 1, pricing: 1, mail: 2, tpl: 2, music: 2};
+  const TABGROUP = {prefs: 0, yt: 0, src: 0, audme: 0, clip: 0, saver: 0, trend: 0, growth: 0, conn: 1, airoute: 1, ytx: 1, aud: 1, pricing: 1, mail: 2, tpl: 2, music: 2};
   const TABHEAD = ["My account", "The studio (owner)", "Email and files (owner)"];
   const GROUPS = {   // [title, hint, [keys], opened?]
     conn: [["Find clips", "Twitch and YouTube. Needed for clips and live streams.", ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET", "YOUTUBE_API_KEY"], true],
@@ -66,7 +68,7 @@ async function settings() {
       return `<details class="fgrp" ${open ? "open" : ""}><summary>${t}${shown > 1 || ks.some(k => st[k].secret) ? `<span class="fgn">${set} of ${shown} filled in</span>` : ""}</summary>${hint ? `<div class="help fgd">${hint}</div>` : ""}<div class="fields">${ks.map(k => field(k, st[k])).join("")}</div>${t === "Best thumbnails" ? `<div class="row" style="padding:0 16px 16px;gap:12px;align-items:center;flex-wrap:wrap"><button type="button" id="bt_test" class="pri">Test Best thumbnails now</button><span class="muted" id="bt_res">Save the keys first: the test uses what is saved.</span></div>` : ""}</details>`;
     }).join("");
   };
-  if (!isOwner) SECTIONS.splice(0, SECTIONS.length, ...SECTIONS.filter(x => ["prefs", "yt", "clip", "audme", "src", "saver", "trend"].includes(x.id)));   // members never see server-wide settings
+  if (!isOwner) SECTIONS.splice(0, SECTIONS.length, ...SECTIONS.filter(x => ["prefs", "yt", "clip", "audme", "src", "saver", "trend", "growth"].includes(x.id)));   // members never see server-wide settings
   const META = {
     TWITCH_CLIENT_ID: ["Twitch client ID", "Free at dev.twitch.tv/console. Needed for Twitch clips and live streams."],
     TWITCH_CLIENT_SECRET: ["Twitch client secret", ""],
@@ -160,7 +162,7 @@ async function settings() {
     paintTabs(s);
     $("#spanes").innerHTML = SECTIONS.map(sec => `<div class="card spane" data-p="${sec.id}" ${state.tab === sec.id ? "" : "hidden"}>
       <h2>${svg(sec.icon).replace("<svg", '<svg width="18" height="18" style="stroke:currentColor;fill:none;stroke-width:1.8"')}${sec.title}</h2><p class="secdesc">${sec.desc}</p>
-      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "saver" ? `<div id="savercfg" class="muted">Loading…</div>` : sec.id === "trend" ? `<div id="trendcfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "airoute" ? `<div id="airoutecfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `${GROUPS[sec.id] || sec.id === "conn" ? groupedFields(sec, s) : `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>`}
+      ${sec.id === "audme" ? `<div id="audcfg" class="muted">Loading…</div>` : sec.id === "src" ? `<div id="srccfg" class="muted">Loading…</div>` : sec.id === "saver" ? `<div id="savercfg" class="muted">Loading…</div>` : sec.id === "growth" ? `<div id="growthcfg" class="muted">Loading…</div>` : sec.id === "trend" ? `<div id="trendcfg" class="muted">Loading…</div>` : sec.id === "pricing" ? `<div id="pricecfg" class="muted">Loading…</div>` : sec.id === "prefs" ? `<div id="prefscfg" class="muted">Loading…</div>` : sec.id === "yt" ? `<div id="ytcfg" class="muted">Loading…</div>` : sec.id === "ytx" ? `<div id="ytxcfg" class="muted">Loading…</div>` : sec.id === "tpl" ? `<div id="tplcfg" class="muted">Loading…</div>` : sec.id === "airoute" ? `<div id="airoutecfg" class="muted">Loading…</div>` : sec.id === "clip" ? `<div id="clipcfg" class="muted">Loading…</div>` : sec.keys ? `${GROUPS[sec.id] || sec.id === "conn" ? groupedFields(sec, s) : `<div class="fields">${sec.keys.filter(k => s[k]).map(k => field(k, s[k])).join("")}</div>`}
         <div class="savebar"><button class="pri" data-save>Save changes</button>${sec.id === "mail" ? `<button id="mt">Send test email</button><span class="muted" id="mres"></span>` : ""}
         <span class="muted">Stored in the local .env file.</span></div>`
       : `<div class="row"><input type="file" id="mf" accept=".mp3,.wav,.m4a,.ogg,.flac" class="grow"><button id="mu" class="pri">Upload track</button></div><div id="mlist" style="margin-top:14px"></div>`}
@@ -180,7 +182,7 @@ async function settings() {
       try { const r = await api("/api/email/test", {method: "POST"}); $("#mres").innerHTML = `<span style="color:var(--ok)">✔</span> ${esc(r.message)}`; }
       catch (e) { $("#mres").innerHTML = `<span style="color:var(--bad)">✖</span> ${esc(e.message)}`; }
     });
-    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); loadSaver(); loadTrend();
+    loadClipCfg(); loadPrefs(); loadYt(); loadAud(); loadSrc(); loadSaver(); loadTrend(); loadGrowth();
     if (isOwner && $("#bt_test")) {
       api("/api/thumb-best").then(st => { if (st.last_error && $("#bt_res")) $("#bt_res").innerHTML = `<span style="color:var(--bad)">✖ The last Best thumbnail fell back to Better: ${esc(st.last_error)}</span>`; else if (st.last_ok && $("#bt_res")) $("#bt_res").innerHTML = `<span style="color:var(--ok)">✔ The last Best thumbnail worked.</span>`; }).catch(() => {});
       $("#bt_test").onclick = guard(async () => {
@@ -333,7 +335,7 @@ async function settings() {
     ["Parts that run on your own computer (0 = free)", [["tts_per_1k_chars", "Voice, per 1,000 characters"], ["whisper_per_min", "Captions, per minute of speech"], ["safety_local_per_clip", "Local safety check, per clip"]]],
     ["Costs of finding and making a video (charged only when a video is made)", [["search_per_video", "Finding the clip"], ["render_short", "Rendering a Short"], ["render_compilation", "Rendering a compilation"], ["server_per_video", "Server usage (every video made)"], ["trend_short", "Trending mode: Short"], ["trend_compilation", "Trending mode: compilation"]]],
     ["Searching for clips: every clip found", [["youtube_source", "YouTube clip"], ["twitch_source", "Twitch clip"], ["kick_source", "Kick clip"]]],
-    ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["email_send", "Each email sent to a member"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
+    ["Other actions", [["finder_scan", "Clip Finder scan"], ["editor_render", "Editor render"], ["research_run", "Research run"], ["email_send", "Each email sent to a member"], ["social_caption", "AI caption rewrite (Other platforms)"], ["storage_extra_gb_month", "Extra storage: per GB above the free part, per month"]]],
     ["Uploading to YouTube, each", [["upload_short", "Short"], ["upload_compilation", "Compilation"]]],
     ["Reserve taken when a video starts (the unused part comes back)", [["hold_short", "Short"], ["hold_compilation", "Compilation"]]],
     ["Members", [["signup_bonus", "Welcome gift (tokens)"], ["daily_uploads", "Uploads per member per day"]]]];
@@ -469,6 +471,40 @@ async function settings() {
       await api("/api/sources", {method: "PUT", body: {sources: picked}}); toast("Clip sources saved");
       box.querySelector("#src_msg").textContent = "Saved: " + picked.map(cap).join(" + ");
     });
+  });
+  const loadGrowth = guard(async () => {
+    const box = $("#growthcfg"); if (!box) return;
+    const d = await api("/api/growth"); if (!box.isConnected) return; box.className = "";
+    const row = p => p.kind === "bool" ? `<div class="row" style="gap:14px;align-items:flex-start;margin:12px 0"><label class="switch"><input type="checkbox" data-g="${p.key}" ${p.value ? "checked" : ""}><span></span></label><div><b>${esc(p.label)}</b><div class="muted">${esc(p.help)}</div></div></div>`
+      : p.kind === "choice" ? `<div style="margin:12px 0"><label>${esc(p.label)}</label><select data-g="${p.key}">${p.options.map(o => `<option value="${esc(o.id)}" ${o.id === p.value ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select><div class="muted">${esc(p.help)}</div></div>`
+      : `<div style="margin:12px 0;max-width:260px"><label>${esc(p.label)}</label><input type="number" data-g="${p.key}" min="${p.min}" max="${p.max}" value="${p.value}"><div class="muted">${esc(p.help)}</div></div>`;
+    box.innerHTML = `<div class="audnote">Everything here is only about your own videos. Written permission from creators is kept in <a href="#/permissions">Creator permissions</a>.</div>${d.prefs.map(row).join("")}
+      <div class="row" style="gap:12px;align-items:center"><button class="pri" id="g_save">Save</button><span class="muted" id="g_msg"></span></div>`;
+    $("#g_save").onclick = guard(async () => {
+      const body = {}; box.querySelectorAll("[data-g]").forEach(i => body[i.dataset.g] = i.type === "checkbox" ? i.checked : i.type === "number" ? +i.value : i.value);
+      await api("/api/growth", {method: "PUT", body}); toast("Saved"); $("#g_msg").textContent = "Saved";
+    });
+    box.insertAdjacentHTML("beforeend", `<h2 style="margin-top:26px">Your YouTube results</h2><div id="resbox" class="muted">Loading…</div>`);
+    const loadRes = guard(async () => {
+      const r = await api("/api/analytics"), rb = $("#resbox"); if (!rb) return; rb.className = "";
+      if (!r.connected) { rb.innerHTML = `<div class="audnote">Connect your YouTube channel first (the YouTube tab). Then you can allow the studio to read how your videos did.</div>`; return; }
+      if (!r.granted) { rb.innerHTML = `<div class="audnote">To learn from how long people watch, the studio needs ONE extra, read-only permission: YouTube Analytics. It only reads numbers about your own videos. You can take it away at myaccount.google.com/permissions.</div><button class="pri" id="an_allow">Allow YouTube Analytics</button>`;
+        $("#an_allow").onclick = guard(async () => { const x = await api("/api/youtube/connect-analytics", {method: "POST"}); location.href = x.url; }); return; }
+      rb.innerHTML = `<div class="row" style="gap:12px;align-items:center;margin-bottom:10px"><button id="an_sync">Refresh now</button><span class="muted" id="an_msg">${r.count} video${r.count === 1 ? "" : "s"} with results${r.average ? ` · on average ${r.average.avp}% watched${r.average.stayed !== null ? `, ${r.average.stayed}% stayed to watch` : ""}` : ""}</span></div>
+        ${r.videos.length ? `<table><tr><th>Video</th><th>Views</th><th>% watched</th><th>Stayed to watch</th><th>Watch time</th></tr>${r.videos.map(v => `<tr><td>${esc((v.title || "").slice(0, 60))}</td><td>${(v.views || 0).toLocaleString()}</td><td>${v.avp === null ? "-" : Math.round(v.avp) + "%"}</td><td>${v.stayed === null ? "-" : Math.round(v.stayed * 100) + "%"}</td><td>${v.avd === null ? "-" : Math.round(v.avd) + " s"}</td></tr>`).join("")}</table>` : `<div class="muted">No results yet. A video needs a day on YouTube. They are read every few hours.</div>`}`;
+      $("#an_sync").onclick = guard(async () => { $("#an_msg").textContent = "Reading…"; const x = await api("/api/analytics/sync", {method: "POST"}); toast(x.message); loadRes(); });
+    });
+    loadRes();
+    box.insertAdjacentHTML("beforeend", `<h2 style="margin-top:26px">Clips taking off</h2><div id="spikebox" class="muted">Loading…</div>`);
+    const loadSpikes = guard(async () => {
+      const r = await api("/api/spikes"), sb = $("#spikebox"); if (!sb) return; sb.className = "";
+      const modeNote = r.mode === "off" ? `Spike alerts are off. Switch them on above ("Spike alerts"), save, and the studio watches Twitch for your games.` : r.mode === "alert" ? "You are told when a clip takes off, and you decide." : "You are told, and a Short is made by itself (up to your daily limit).";
+      sb.innerHTML = `<div class="audnote">${modeNote} Only Twitch is watched (YouTube's search would use up its daily allowance). It looks every ten minutes.</div>` + (r.alerts.length ? `<table><tr><th>Clip</th><th>Views</th><th>Growing</th><th>When</th><th></th></tr>${r.alerts.map(a => `<tr><td><b>${esc((a.title || "").slice(0, 60))}</b><div class="muted">${esc(a.streamer || "")} · ${esc(a.category || "")}${a.url ? ` · <a href="${esc(a.url)}" target="_blank" rel="noopener">watch</a>` : ""}</div></td>
+        <td>${(a.views || 0).toLocaleString()}</td><td>${a.per_hour ? a.per_hour.toLocaleString() + " an hour" : "-"}</td><td class="muted">${when(a.created_at)}</td>
+        <td style="text-align:right">${a.status === "new" ? `<button data-mk="${a.id}">Make a Short now</button>` : a.status === "making" ? `<span class="badge running">Being made</span>` : `<span class="badge uploaded">${esc(a.status)}</span>`}</td></tr>`).join("")}</table>` : `<div class="muted" style="margin-top:8px">No clip has taken off yet.</div>`);
+      sb.querySelectorAll("[data-mk]").forEach(b => b.onclick = guard(async () => { b.disabled = true; b.textContent = "Starting…"; await api(`/api/spikes/${b.dataset.mk}/make`, {method: "POST"}); toast("A Short is being made. See Make a video for its progress."); loadSpikes(); }));
+    });
+    loadSpikes();
   });
   const loadTrend = guard(async () => {
     const box = $("#trendcfg"); if (!box) return;

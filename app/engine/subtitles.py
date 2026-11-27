@@ -38,7 +38,7 @@ Style: ShortsHighlight,{SUBTITLE_FONT_NAME},{SUBTITLE_FONT_SIZE},{ACCENT_COLOR},
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
-def generate_ass_from_words(words_list, output_file: Path, words_per_chunk: int = 3):
+def generate_ass_from_words(words_list, output_file: Path, words_per_chunk: int = 3, card=None):
     """
     Groups words into short, punchy 2-4 word phrases (Shorts style)
     and writes out an .ass subtitle file with highlighted words.
@@ -74,6 +74,10 @@ def generate_ass_from_words(words_list, output_file: Path, words_per_chunk: int 
             line = f"Dialogue: 0,{format_timestamp(w_start)},{format_timestamp(w_end)},ShortsDefault,,0,0,0,,{event_text}"
             lines.append(line)
             
+    if card:                                              # a "context card": who and what you are seeing, for the first few seconds, at the top of the picture
+        text = "\\N".join(" ".join(str(x).replace("{", "").replace("}", "").replace("\\", "").split())[:70] for x in str(card).split("\n") if x.strip())[:160]
+        if text:
+            lines.append(f"Dialogue: 1,{format_timestamp(0.3)},{format_timestamp(4.0)},ShortsDefault,,0,0,0,,{{\\an8\\pos(540,170)\\fs44\\c&H00FFFFFF&\\bord14\\3c&H00181818&\\shad0\\fad(250,350)}}{text}")
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
         

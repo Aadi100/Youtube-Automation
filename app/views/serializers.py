@@ -38,8 +38,73 @@ def twitch_pack(d: dict) -> dict:
             "category": d.get("game_name") or "", "tags": tags}
 
 
-def _vid(doc: dict, owner: bool = False) -> dict:
+SOCIAL = ("tiktok", "instagram", "facebook")
+SOCIAL_NAMES = {"tiktok": "TikTok", "instagram": "Instagram Reels", "facebook": "Facebook Reels"}
+SOCIAL_HOSTS = {"tiktok": ("tiktok.com",), "instagram": ("instagram.com",), "facebook": ("facebook.com", "fb.watch", "fb.com")}
+SOCIAL_OPEN = {"tiktok": "https://www.tiktok.com/upload", "instagram": "https://www.instagram.com/", "facebook": "https://www.facebook.com/reels/create"}
+SOCIAL_STATUSES = {"pending", "posted", "skipped"}
+
+
+def _tag(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", str(text or ""))[:30]
+
+
+def _tags(*groups, limit: int) -> list:
+    """Hashtags without repeats (ignoring case), in the order given, at most `limit`."""
+    out, seen = [], set()
+    for g in groups:
+        for t in g:
+            t = _tag(t)
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                out.append("#" + t)
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def social_pack(d: dict) -> dict:
+    """One caption per platform for a manual post, each written the way that platform is read: TikTok short and punchy, Instagram a hook, a line of story and
+    hashtags, Facebook friendly with a question and the YouTube link. Built from the video's own title, description and credits (no AI call, no cost)."""
+    title = re.sub(r"\s*#\w+", "", d.get("title") or "").strip()
+    desc = d.get("description") or ""
+    head = next((ln.strip() for ln in desc.split("\n") if ln.strip() and not ln.strip().startswith("#")), "")
+    head = re.sub(r"\s*#\w+", "", head).strip()
+    if head.lower() == title.lower():
+        head = ""
+    game = d.get("game_name") or ""
+    own = [t for t in re.findall(r"#(\w+)", desc) if t.lower() not in ("shorts", "short", "youtubeshorts")]
+    names, seen = [], set()
+    for c in d.get("credits") or []:
+        n = (c.get("creator") or "").strip()
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            names.append(n)
+    credit = ("Clip by " + ", ".join(names[:3])) if names else ""
+    yt = d.get("youtube_url") or (f"https://youtu.be/{d['youtube_id']}" if d.get("youtube_id") else "")
+
+    tt = _tags([game], own[:3], ["gaming", "gamingclips"], limit=5)
+    tiktok = "\n".join(x for x in [title[:110], credit, " ".join(tt)] if x)[:300]
+
+    ig_tags = _tags([game], own, ["gaming", "gamer", "reels", "gamingreels", "clips", "funny"], limit=8)
+    insta = "\n\n".join(x for x in [title, head, (f"Follow for more {game} moments." if game else "Follow for more gaming moments."), credit, " ".join(ig_tags)] if x)[:2200]
+
+    fb_tags = _tags([game], limit=2)
+    fb = "\n\n".join(x for x in [title, head, "What would you have done? Tell us in the comments.", (f"Watch the full video on YouTube: {yt}" if yt else ""), credit,
+                                "All rights belong to the original creators and owners.", " ".join(fb_tags)] if x)[:2200]
+    return {"tiktok": tiktok, "instagram": insta, "facebook": fb}
+
+
+def _vid(doc: dict, owner: bool = False, permitted=None) -> dict:
     out = clean(doc)
+    try:                                                            # the reused-content risk (plain rules; the member's permission records lower it)
+        from app.engine import risk
+        if permitted is None and doc.get("user_id"):
+            from app.services import permission_service
+            permitted = permission_service.allowed_map(doc["user_id"])
+        out["risk"] = risk.assess(doc, permitted or {})
+    except Exception:
+        out["risk"] = None
     if not owner:                       # members see what was done and what it cost, never which service did it
         from app.services import token_service
         if out.get("receipt") is not None:
@@ -47,6 +112,15 @@ def _vid(doc: dict, owner: bool = False) -> dict:
     out["twitch"] = {k: (v.isoformat() if hasattr(v, "isoformat") else v)
                      for k, v in (doc.get("twitch") or {"status": "pending"}).items()}
     out["twitch_pack"] = twitch_pack(doc)
+    try:
+        from app.services import analytics_service
+        out["results"] = analytics_service.view(doc)          # what YouTube says happened to it (None until the member allowed Analytics and a day has passed)
+    except Exception:
+        out["results"] = None
+    sc = doc.get("social") or {}
+    out["social"] = {p: {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in (sc.get(p) or {"status": "pending"}).items()} for p in SOCIAL}
+    out["social_pack"] = {**social_pack(doc), **{p: t for p, t in (doc.get("social_text") or {}).items() if p in SOCIAL and t}}
+    out["social_ai"] = {p: True for p, t in (doc.get("social_text") or {}).items() if p in SOCIAL and t}       # these captions were written by the AI
     out["file_mb"] = round(Path(doc.get("video_path") or "").stat().st_size / 1e6, 1) if Path(doc.get("video_path") or "").is_file() else None
     return out
 

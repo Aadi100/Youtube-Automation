@@ -22,6 +22,8 @@ KINDS: Dict[str, tuple] = {
     "tokens": ("Tokens added, or my balance is running low", True, False, "all"),
     "schedule": ("A scheduled run was skipped", True, False, "all"),
     "editor": ("An editor export is finished", True, False, "all"),
+    "risk": ("A video was held back because it looks like reused content", True, True, "all"),
+    "spike": ("A clip is taking off (spike alerts)", True, False, "all"),
     "account": ("My account and sign-in security", True, True, "all"),
     "signup": ("A new member is waiting for approval", True, True, "owner"),
     "system": ("Server problems (disk, repeated failures, workers)", True, True, "owner"),

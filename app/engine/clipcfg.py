@@ -106,6 +106,90 @@ def save_ai_saver(uid, on) -> bool:
     return bool(on)
 
 
+def pref(uid: Optional[str], name: str, default=None):
+    """One small per-account choice (the same settings document as the clipping choices). `default` when the account never chose."""
+    try:
+        from app.models import Setting
+        v = (Setting.find_one(id=_doc_id(uid)) or {}).get(name)
+        return default if v is None else v
+    except Exception:
+        return default
+
+
+def save_pref(uid, name: str, value):
+    from app.models import Setting
+    Setting.set_fields(_doc_id(uid), {name: value}, upsert=True)
+    return value
+
+
+NARRATION_STYLES = [("default", "The usual style", ""),
+                    ("hype", "Hype: loud, excited, like a sports caster", "Write it hyped up and energetic, like an excited sports commentator. Short punchy lines."),
+                    ("funny", "Funny: jokes and playful roasting", "Write it funny. Light jokes and playful teasing, never mean or about real people's looks."),
+                    ("calm", "Calm explainer: clear and friendly", "Write it as a calm, friendly explainer. Say clearly what happens and why it matters."),
+                    ("sarcastic", "Sarcastic: dry and witty", "Write it dry and sarcastic, with witty understatement. Never insult anyone."),
+                    ("story", "Storyteller: a mini story", "Tell it like a very short story: set the scene, build up, then the turn."),
+                    ("news", "News reporter: serious and factual", "Write it like a news reporter covering a breaking story: serious, factual, in short sentences.")]
+SPIKE_MODES = [("off", "Off"), ("alert", "Tell me (I decide)"), ("auto", "Tell me and make the Short by itself")]
+GROWTH = {   # name -> (kind, default, label, help)          the small per-account choices of "Protection and growth" (Settings)
+    "risk_hold": ("bool", True, "Hold risky videos for my review", "A video that looks like reused content is not put on YouTube by itself. You see why and decide."),
+    "narration_style": ("choice", "default", "Commentary style", "How the AI commentary on your Shorts sounds."),
+    "context_card": ("bool", False, "Add a short context card", "A line at the start of a Short that says who and what you are seeing. It is more of your own work in the video."),
+    "analytics_on": ("bool", True, "Learn from my YouTube results", "Reads each video's views, watch time and how many stayed to watch from YouTube and uses them in the Learning Lab."),
+    "spike_mode": ("choice", "off", "Spike alerts", "Watches Twitch for a clip that suddenly takes off for your games."),
+    "spike_auto_per_day": ("int", 2, "Most Shorts made by themselves per day", "A limit so spike alerts can never use up your tokens."),
+    "spike_min_views": ("int", 300, "A clip must have at least this many views", "Ignore small clips, however fast they grow."),
+}
+
+
+def growth_payload(uid) -> Dict:
+    out = []
+    for k, (kind, default, label, help_) in GROWTH.items():
+        item = {"key": k, "kind": kind, "label": label, "help": help_, "value": pref(uid, k, default), "default": default}
+        if k == "narration_style":
+            item["options"] = [{"id": a, "label": b} for a, b, _ in NARRATION_STYLES]
+        elif k == "spike_mode":
+            item["options"] = [{"id": a, "label": b} for a, b in SPIKE_MODES]
+        elif kind == "int":
+            item["min"], item["max"] = (1, 10) if k == "spike_auto_per_day" else (50, 100000)
+        out.append(item)
+    return {"prefs": out}
+
+
+def save_growth(uid, data: Dict) -> Dict:
+    """Save the choices that were sent (unknown names are ignored; a wrong value is refused with a plain message)."""
+    for k, v in (data or {}).items():
+        if k not in GROWTH:
+            continue
+        kind, default = GROWTH[k][0], GROWTH[k][1]
+        if kind == "bool":
+            v = bool(v)
+        elif kind == "int":
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                raise ValueError(f"{GROWTH[k][2]}: write a whole number.")
+            lo, hi = (1, 10) if k == "spike_auto_per_day" else (50, 100000)
+            if not lo <= v <= hi:
+                raise ValueError(f"{GROWTH[k][2]}: choose a number from {lo} to {hi}.")
+        else:
+            ok = {a for a, *_ in (NARRATION_STYLES if k == "narration_style" else SPIKE_MODES)}
+            if v not in ok:
+                raise ValueError(f"{GROWTH[k][2]}: choose one of the listed options.")
+        save_pref(uid, k, v)
+    return growth_payload(uid)
+
+
+def narration_hint(uid: Optional[str] = None) -> str:
+    """The sentence added to the commentary prompt for this account's chosen style ('' for the usual style)."""
+    st = pref(uid, "narration_style", "default")
+    return next((h for k, _, h in NARRATION_STYLES if k == st), "")
+
+
+def risk_hold_on(uid: Optional[str] = None) -> bool:
+    """Hold videos that look like reused content for the member's review instead of uploading them by themselves? On until the member switches it off."""
+    return bool(pref(uid, "risk_hold", True))
+
+
 def _doc_id(uid: Optional[str] = None) -> str:
     u = uid or os.environ.get("CLIPSTUDIO_USER_ID")
     return f"clipping:{u}" if u else "clipping"

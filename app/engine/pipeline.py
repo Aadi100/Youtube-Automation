@@ -35,7 +35,7 @@ def resolve(game_id: Optional[str]) -> Dict:
 
 def credit_for(c: Dict) -> Dict:
     return {"creator": c.get("streamer"), "title": c.get("title"), "platform": c.get("source"),
-            "video_url": c.get("url"), "channel_url": c.get("channel_url")}
+            "video_url": c.get("url"), "channel_url": c.get("channel_url"), "views": int(c.get("views") or 0)}
 
 
 def _write_manifest(data: Dict) -> Dict:
@@ -126,6 +126,19 @@ def _auto_cam_crop(video: Path, default: str) -> str:
     return default
 
 
+def _context_card(streamer: str, game: Dict, topic: str) -> Optional[str]:
+    """The text of the context card, when this member switched it on (Settings -> Protection and growth): 'Streamer · Game' and the original title."""
+    try:
+        from app.engine import clipcfg
+        if not clipcfg.pref(None, "context_card", False):
+            return None
+    except Exception:
+        return None
+    who = " · ".join(x for x in [str(streamer or "").strip(), str((game or {}).get("name") or "").strip()] if x)
+    title = " ".join(str(topic or "").split())[:60]
+    return "\n".join(x for x in [who, f'"{title}"' if title else ""] if x) or None
+
+
 def run_short_pipeline(
     input_video: Path,
     layout: str = "blur",
@@ -153,8 +166,9 @@ def run_short_pipeline(
     audio_path, words, audio_used = build_audio(
         input_video, audio_mode, input_video.stem, transcript, streamer_name, topic, game["name"], context=context)
 
+    card = _context_card(streamer_name, game, topic) if not remix else None
     kwargs = dict(input_video=input_video, with_subtitles=with_subtitles,
-                  audio_path=audio_path, words=words)
+                  audio_path=audio_path, words=words, card=card)
     rendered = (make_short_split(cam_crop=cam_crop, **kwargs) if layout == "split"
                 else make_short_blurred(**kwargs))
 
@@ -181,7 +195,9 @@ def run_short_pipeline(
     meta_file = rendered.with_suffix(".json")
     meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Short: {rendered}\nCover: {thumb}\nMeta:  {meta_file}")
-    return _write_manifest(_manifest("short", rendered, thumb, meta, audio_used, clip_ids or [], game, credits))
+    manifest = _manifest("short", rendered, thumb, meta, audio_used, clip_ids or [], game, credits)
+    manifest["context_card"] = bool(card)
+    return _write_manifest(manifest)
 
 
 def _finish_remix(doc: Dict, rendered: Path, audio_used: str) -> Dict:

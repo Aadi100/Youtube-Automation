@@ -29,6 +29,7 @@ USERINFO_URL = os.environ.get("GOOGLE_USERINFO_URL", "https://openidconnect.goog
 API = os.environ.get("YT_API_BASE", "https://www.googleapis.com/youtube/v3")
 UPLOAD = os.environ.get("YT_UPLOAD_BASE", "https://www.googleapis.com/upload/youtube/v3")
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube", "openid", "email"]
+ANALYTICS_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly"      # asked for separately, only when a member chooses to let the studio learn from their results
 UNITS = {"thumbnail": 50, "update": 50, "list": 1}     # the shared pool; uploads are counted separately (daily_uploads)
 CHUNK = 8 * 1024 * 1024   # multiple of 256 KB, as the resumable protocol requires
 
@@ -125,9 +126,9 @@ def can_upload() -> bool:
 
 
 # ---------------------------------------------------------------- sign in with Google
-def auth_url(redirect_uri: str, state: str) -> str:
+def auth_url(redirect_uri: str, state: str, scopes=None) -> str:
     cid, _ = client()
-    return AUTH_URL + "?" + urlencode({"client_id": cid, "redirect_uri": redirect_uri, "response_type": "code", "scope": " ".join(SCOPES),
+    return AUTH_URL + "?" + urlencode({"client_id": cid, "redirect_uri": redirect_uri, "response_type": "code", "scope": " ".join(scopes or SCOPES),
                                        "access_type": "offline", "prompt": "consent", "include_granted_scopes": "true", "state": state})
 
 
@@ -169,7 +170,7 @@ def save_account(user_id: str, tokens: Dict) -> Dict:
         raise YTError("This YouTube channel is already connected to another account.")
     doc = {"user_id": str(user_id), "channel_id": ch["id"], "channel_title": ch["title"], "email": email,
            "refresh_enc": _enc(tokens["refresh_token"]), "access_token": tokens["access_token"],
-           "expires_at": time.time() + int(tokens.get("expires_in", 3600)) - 60, "connected_at": now()}
+           "expires_at": time.time() + int(tokens.get("expires_in", 3600)) - 60, "connected_at": now(), "scopes": str(tokens.get("scope") or "")}
     YtAccount.objects(user_id=str(user_id)).update_one(upsert=True, **{f"set__{k}": v for k, v in doc.items()})
     return {"channel_id": ch["id"], "channel_title": ch["title"], "email": email}
 
@@ -178,9 +179,15 @@ def get_account(user_id) -> Optional[Dict]:
     return raw(YtAccount.objects(user_id=str(user_id)).first()) if user_id else None
 
 
+def has_analytics(user_id) -> bool:
+    """Has this member allowed the studio to read their YouTube Analytics?"""
+    a = get_account(user_id)
+    return bool(a and ANALYTICS_SCOPE in str(a.get("scopes") or ""))
+
+
 def public_status(user_id) -> Dict:
     a = get_account(user_id)
-    return {"configured": configured(), "connected": bool(a), "channel_title": a.get("channel_title") if a else None,
+    return {"configured": configured(), "connected": bool(a), "analytics": has_analytics(user_id), "channel_title": a.get("channel_title") if a else None,
             "channel_id": a.get("channel_id") if a else None, "email": a.get("email") if a else None}
 
 

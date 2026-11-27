@@ -16,6 +16,9 @@ const ICON = {
   mail: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/>',
   music: '<path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
   moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  permissions: '<path d="M12 3l8 3v5c0 4.5-3.2 8.2-8 10-4.8-1.8-8-5.5-8-10V6z"/><path d="M8.5 12l2.5 2.5L15.5 9.5"/>',
+  projects: '<rect x="3" y="4" width="18" height="11" rx="2"/><path d="M3 19h5M11 19h4M18 19h3"/><path d="M10 7.5v4l3.5-2z"/>',
+  social: '<circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="18" cy="18" r="2.6"/><path d="M8.3 10.8l7.4-3.6M8.3 13.2l7.4 3.6"/>',
   more: '<circle cx="5.5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18.5" cy="12" r="1.6"/>',
 };
 const svg = (n) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
@@ -25,7 +28,7 @@ Object.assign(ICON, {usage: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5v9"/
 function buildShell() {
   const owner = ME.role === "owner";
   const NAV = [["", [["overview", "Home"], ["create", "Make a video"], ["videos", "My videos"], ["games", "Games"], ["schedule", "Schedule"]]],
-               ["More tools", [["editor", "Video editor"], ["clips", "Source clips"], ["research", "Find ideas"], ["twitch", "Post on Twitch"]].concat(owner ? [["reactions", "Reaction Lab"], ["lab", "Learning Lab"]] : []), "fold"],
+               ["More tools", [["editor", "Video editor"], ["projects", "Edit projects"], ["permissions", "Creator permissions"], ["clips", "Source clips"], ["research", "Find ideas"], ["social", "Other platforms"], ["twitch", "Post on Twitch"]].concat(owner ? [["reactions", "Reaction Lab"], ["lab", "Learning Lab"]] : []), "fold"],
                ["Account", [["usage", "Tokens and usage"], ["settings", "Settings"], ["profile", "My profile"], ["notifications", "Notifications"]]]]
     .concat(owner ? [["Owner", [["users", "Users"], ["reports", "Reports"]]]] : []);
   const navLink = ([r, t]) => `<a href="#/${r}" data-r="${r}">${svg(r)}<span>${t}</span>${r === "reactions" || r === "lab" ? `<i class="betatag">BETA</i>` : ""}</a>`;
@@ -64,6 +67,9 @@ const SUBS = {
   create: "Pick what to make, where the clips come from, and press Start. You can watch it being made.",
   videos: "Every video made for you. Open one to watch it, change it, approve it or throw it away.",
   twitch: "Twitch has no upload API, so this makes manual uploading quick: ready title, description and files.",
+  permissions: "Write down which creators allowed you to clip them, when, and the proof. Trending mode prefers them and your risk score goes down.",
+  projects: "Put several clips on a timeline, trim and reorder them, add text, and make one finished video. Your work saves by itself.",
+  social: "Your Shorts are already vertical, so they fit all three. Each platform gets its own caption. Download the video, open the platform, paste the caption and post. Nothing needs to be connected.",
   clips: "The clips the studio found and saved. Videos are made from these.",
   schedule: "Let the studio make videos for you at times you choose, with no clicking.",
   settings: "Connect your accounts and choose how your videos should look and sound.",

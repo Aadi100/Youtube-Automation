@@ -17,6 +17,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from app.services import analytics_service
 from app.engine import lab_model as M
 from app.models import Clip, User, Video, now
 from app.models.lab import LabExample, LabLog, LabState
@@ -206,7 +207,7 @@ def title_dataset(uid):
         if age < 2.0:                                       # a new video has not had its chance yet
             continue
         X.append(M.title_features(v["title"]))
-        y.append(float(np.log1p(float(v["lab_views"]) / max(age, 2.0))))
+        y.append(float(analytics_service.perf(v, age)))          # views per day, moved up or down by the watch time and the stayed-to-watch share when YouTube gave them
         titles.append(M.clean_title(v["title"]))
     return (np.array(X) if X else np.zeros((0, len(M.TITLE_FEATURES)))), np.array(y), titles
 
@@ -214,7 +215,10 @@ def title_dataset(uid):
 def clip_dataset(uid):
     """One row per Short the owner decided on: published = 1, declined = 0. The clip's features were written down when it was found."""
     X, y = [], []
-    for v in Video.find_all(user_id=str(uid), kind="short"):
+    shorts = Video.find_all(user_id=str(uid), kind="short")
+    scored = sorted(analytics_service.perf(v, max(_age_days(v), 2.0)) for v in shorts if v.get("status") == "public" and v.get("analytics") and not (v.get("analytics") or {}).get("empty"))
+    perf_cut = scored[len(scored) // 3] if len(scored) >= 6 else None      # the weakest third of the published videos that have results (needs 6 of them)
+    for v in shorts:
         label = 1.0 if v.get("status") == "public" else 0.0 if v.get("status") in ("declined", "discarded") else None
         ids = v.get("clip_ids") or []
         if label is None or not ids:
@@ -222,6 +226,8 @@ def clip_dataset(uid):
         c = Clip.find_one(id=ids[0])
         if not c:
             continue
+        if label == 1.0 and v.get("analytics") and not (v.get("analytics") or {}).get("empty") and perf_cut is not None and analytics_service.perf(v, max(_age_days(v), 2.0)) < perf_cut:
+            label = 0.0                                          # it was published, but it did badly: the moments like it are not what works on this channel
         X.append(M.clip_features(M.lab_from_clip(c)))
         y.append(label)
     return (np.array(X) if X else np.zeros((0, len(M.CLIP_FEATURES)))), np.array(y)
@@ -241,7 +247,8 @@ def train(uid, part: str) -> Dict:
             _save_model(uid, part, None, note)
             return {"trained": False, "n": int(len(y)), "need": M.MIN_TITLES, "message": note}
         model = M.fit_ridge(X, y, [k for k, _ in M.TITLE_FEATURES])
-        note = f"Learned from the views per day of {len(y)} of your videos."
+        n_res = sum(1 for v in Video.find_all(user_id=str(uid), kind="short") if v.get("analytics") and not (v.get("analytics") or {}).get("empty"))
+        note = f"Learned from the views per day of {len(y)} of your videos" + (f" and from how long people watched ({n_res} videos have YouTube results)." if n_res else ".")
         _save_model(uid, part, model, note)
         return {"trained": True, "n": int(len(y)), "message": note}
     if part == "clipping":

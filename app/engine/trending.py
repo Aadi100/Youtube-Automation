@@ -53,14 +53,36 @@ def growth(c: Dict, now: Optional[datetime] = None) -> float:
     return float(c.get("views") or 0) / _age_hours(c.get("published"), now)
 
 
-def rank(cands: List[Dict], keywords: Optional[List[str]] = None, now: Optional[datetime] = None) -> List[Dict]:
-    """The candidates, fastest growing first. A title that mentions a trending keyword gets a 25% boost. Each candidate gets 'trend' = {vph, boost}."""
+PERMITTED_BOOST = 1.6                  # a clip from a creator who allowed clipping (Permission tracker) ranks as if it grew 60% faster
+
+
+def permitted_map() -> Dict:
+    """The creators who allowed the member of this run to clip them (empty when there is no member or no record)."""
+    try:
+        uid = os.environ.get("CLIPSTUDIO_USER_ID")
+        if not uid:
+            return {}
+        from app.services import permission_service
+        return permission_service.allowed_map(uid)
+    except Exception:
+        return {}
+
+
+def rank(cands: List[Dict], keywords: Optional[List[str]] = None, now: Optional[datetime] = None, permitted: Optional[Dict] = None) -> List[Dict]:
+    """The candidates, fastest growing first. A title that mentions a trending keyword gets a 25% boost, and a creator who allowed clipping a 60% boost.
+    Each candidate gets 'trend' = {vph, boost, permitted}."""
     kw = [k.lower() for k in (keywords or []) if k and len(k) > 2]
+    prefer = (os.environ.get("CLIPSTUDIO_PREFER_CLIP") or "").strip()
     out = []
     for c in cands:
         vph = growth(c, now)
         hit = any(k in (c.get("title") or "").lower() for k in kw)
-        out.append({**c, "trend": {"vph": round(vph, 1), "boost": hit}, "_score": vph * (1.25 if hit else 1.0)})
+        ok = False
+        if permitted:
+            from app.services import permission_service
+            ok = permission_service.is_permitted(permitted, c.get("source"), c.get("streamer"), c.get("channel_url"))
+        first = bool(prefer and str(c.get("clip_id")) == prefer)           # a spike alert asked for this very clip: it goes first
+        out.append({**c, "trend": {"vph": round(vph, 1), "boost": hit, "permitted": ok}, "_score": vph * (1.25 if hit else 1.0) * (PERMITTED_BOOST if ok else 1.0) * (1000.0 if first else 1.0)})
     out.sort(key=lambda c: -c["_score"])
     for c in out:
         c.pop("_score", None)
@@ -94,11 +116,15 @@ def theme(game_name: str, top: List[Dict]) -> Optional[Dict]:
 def prepare(game: Dict, per_source: List[List[Dict]]) -> List[List[Dict]]:
     """Re-rank each source's candidates by growth (with the optional AI theme as a boost). Prints what it found, so the job log shows it."""
     flat = [c for lst in per_source for c in lst]
-    first = rank(flat)
+    allowed = permitted_map()
+    first = rank(flat, None, None, allowed)
     th = theme(game.get("name", ""), first)
     kws = (th or {}).get("keywords") or []
     _state["theme"] = th
-    out = [rank(lst, kws) for lst in per_source]
+    out = [rank(lst, kws, None, allowed) for lst in per_source]
+    n_ok = sum(1 for lst in out for c in lst if c["trend"].get("permitted"))
+    if n_ok:
+        print(f"[Trending] {n_ok} candidate(s) are from creators who allowed you to clip them: they are preferred", flush=True)
     top = max((lst[0] for lst in out if lst), key=lambda c: c["trend"]["vph"], default=None)
     if th:
         print(f"[Trending] {game.get('name')}: {th['theme']} (keywords: {', '.join(th['keywords'])})", flush=True)

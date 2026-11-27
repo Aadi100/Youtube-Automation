@@ -59,7 +59,7 @@ def create_badge_ass(idx: int, streamer: str, title: str, output_file: Path) -> 
     """Creates a sleek lower-third badge with fade in/out using ASS format."""
     clean_title = title.replace("{", "").replace("}", "").upper()
     clean_streamer = streamer.replace("{", "").replace("}", "")
-    
+
     ass_content = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1920
@@ -98,35 +98,36 @@ def make_short_blurred(
     output_video: Optional[Path] = None,
     with_subtitles: bool = True,
     audio_path: Optional[Path] = None,
-    words: Optional[list] = None
+    words: Optional[list] = None,
+    card: Optional[str] = None
 ) -> Path:
     """Creates a 9:16 YouTube Short with blurred background and centered gameplay."""
     if not output_video:
         output_video = SHORTS_OUTPUT_DIR / f"{input_video.stem}_short.mp4"
-        
+
     ass_path = None
-    if with_subtitles:
-        if not words:
+    if with_subtitles or card:
+        if with_subtitles and not words:
             words = transcribe_audio_to_words(input_video, TEMP_DIR)
         ass_path = TEMP_DIR / f"{safe_name(input_video.stem)}_subs.ass"
-        generate_ass_from_words(words, ass_path)
-        
+        generate_ass_from_words(words if with_subtitles else [], ass_path, card=card)
+
     filtergraph = [
         "[0:v]split=2[bg][fg];",
         f"[bg]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=increase,crop={SHORTS_WIDTH}:{SHORTS_HEIGHT},boxblur=25:5[bgblur];",
         f"[fg]scale={SHORTS_WIDTH}:-1:force_original_aspect_ratio=decrease[fgscaled];",
         "[bgblur][fgscaled]overlay=(W-w)/2:(H-h)/2[base]"
     ]
-    
+
     if ass_path and ass_path.exists():
         escaped_ass = escape_ffmpeg_path(ass_path)
         filtergraph.append(f";[base]ass='{escaped_ass}'[vout]")
         v_map = "[vout]"
     else:
         v_map = "[base]"
-        
+
     audio_filter = f"loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5,aformat=channel_layouts=stereo"
-    
+
     cmd = [
         FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-y",
         "-i", str(input_video),
@@ -142,7 +143,7 @@ def make_short_blurred(
         "-b:a", "192k",
         str(output_video)
     ]
-    
+
     print(f"[Shorts] Rendering blurred-background Short: {output_video.name}...")
     subprocess.run(cmd, check=True)
     print(f"[Shorts] Successfully created: {output_video}")
@@ -154,37 +155,38 @@ def make_short_split(
     output_video: Optional[Path] = None,
     with_subtitles: bool = True,
     audio_path: Optional[Path] = None,
-    words: Optional[list] = None
+    words: Optional[list] = None,
+    card: Optional[str] = None
 ) -> Path:
     """Creates a 9:16 Short with Streamer Facecam on Top and Gameplay on Bottom."""
     if not output_video:
         output_video = SHORTS_OUTPUT_DIR / f"{input_video.stem}_split_short.mp4"
-        
+
     ass_path = None
-    if with_subtitles:
-        if not words:
+    if with_subtitles or card:
+        if with_subtitles and not words:
             words = transcribe_audio_to_words(input_video, TEMP_DIR)
         ass_path = TEMP_DIR / f"{safe_name(input_video.stem)}_split_subs.ass"
-        generate_ass_from_words(words, ass_path)
-        
+        generate_ass_from_words(words if with_subtitles else [], ass_path, card=card)
+
     cam_x, cam_y, cam_w, cam_h = cam_crop.split(":")
-    
+
     filtergraph = [
         f"[0:v]split=2[cam_in][game_in];",
         f"[cam_in]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},scale={SHORTS_WIDTH}:720[top_cam];",
         f"[game_in]crop=in_w:in_h:0:0,scale={SHORTS_WIDTH}:1200:force_original_aspect_ratio=increase,crop={SHORTS_WIDTH}:1200[bot_game];",
         f"[top_cam][bot_game]vstack=inputs=2[base]"
     ]
-    
+
     if ass_path and ass_path.exists():
         escaped_ass = escape_ffmpeg_path(ass_path)
         filtergraph.append(f";[base]ass='{escaped_ass}'[vout]")
         v_map = "[vout]"
     else:
         v_map = "[base]"
-        
+
     audio_filter = f"loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5,aformat=channel_layouts=stereo"
-    
+
     cmd = [
         FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-y",
         "-i", str(input_video),
@@ -200,7 +202,7 @@ def make_short_split(
         "-b:a", "192k",
         str(output_video)
     ]
-    
+
     print(f"[Shorts] Rendering split-cam Short: {output_video.name}...")
     subprocess.run(cmd, check=True)
     return output_video
@@ -217,35 +219,35 @@ def create_compilation(
         safe_title = "".join(c for c in compilation_title if c.isalnum() or c in (" ", "_", "-")).rstrip()
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # unique per run: never overwrite an older video
         output_video = COMPILATIONS_OUTPUT_DIR / f"{safe_title.replace(' ', '_').lower()}_{stamp}.mp4"
-        
+
     normalized_clips = []
     chapter_markers = ["00:00 - Intro & Highlights"]
     current_timestamp = 0.0
-    
+
     print(f"[Compilation] Processing {len(clips)} clips for compilation: '{compilation_title}'...")
-    
+
     for idx, clip_info in enumerate(clips, 1):
         c_path = Path(clip_info['path'])
         c_title = clip_info.get('title', f'Epic Moment #{idx}')
         c_streamer = clip_info.get('streamer', 'Featured Creator')
-        
+
         info = get_video_info(c_path)
         clip_duration = info['duration']
-        
+
         mins = int(current_timestamp // 60)
         secs = int(current_timestamp % 60)
         chapter_markers.append(f"{mins:02d}:{secs:02d} - Clip #{idx}: {c_title} (@{c_streamer})")
         current_timestamp += clip_duration
-        
+
         badge_ass = TEMP_DIR / f"badge_{idx}.ass"
         create_badge_ass(idx, c_streamer, c_title, badge_ass)
         escaped_badge = escape_ffmpeg_path(badge_ass)
-        
+
         norm_output = TEMP_DIR / f"norm_clip_{idx}.mp4"
-        
+
         v_filter = f"scale={COMPILATION_WIDTH}:{COMPILATION_HEIGHT}:force_original_aspect_ratio=decrease,pad={COMPILATION_WIDTH}:{COMPILATION_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,ass='{escaped_badge}'"
         a_filter = f"loudnorm=I={YOUTUBE_LUFS_TARGET}:LRA=11:TP=-1.5,aformat=channel_layouts=stereo:sample_rates=48000" + _fade_tail(clip_duration)
-        
+
         mix = None
         if audio_mode != "original":
             from app.engine.audio_shield import build_audio
@@ -271,13 +273,13 @@ def create_compilation(
         print(f"  -> Prepping Clip {idx}/{len(clips)}: {c_title}...")
         subprocess.run(cmd, check=True)
         normalized_clips.append(norm_output)
-        
+
     concat_list_file = TEMP_DIR / "concat_list.txt"
     with open(concat_list_file, "w", encoding="utf-8") as f:
         for p in normalized_clips:
             escaped_p = str(p.resolve()).replace("\\", "/").replace("'", "'\\''")      # an apostrophe in a file name must not end the quote
             f.write(f"file '{escaped_p}'\n")
-            
+
     concat_cmd = [
         FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-y",
         "-f", "concat",
@@ -288,11 +290,11 @@ def create_compilation(
     ]
     print(f"[Compilation] Stitching into final compilation: {output_video.name}...")
     subprocess.run(concat_cmd, check=True)
-    
+
     chapters_file = output_video.with_suffix(".txt")
     with open(chapters_file, "w", encoding="utf-8") as f:
         f.write("\n".join(chapter_markers))
-        
+
     print(f"[Compilation] Created successfully! Output: {output_video}")
     return {
         "video_path": output_video,

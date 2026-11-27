@@ -50,6 +50,12 @@ def write_commentary(transcript: str, streamer: str, title: str, max_words: int,
     try:
         from app.engine import llm
         about = f"\nWHAT THE VIDEO IS AND WHAT CAME BEFORE: {context[:1200]}" if context.strip() else ""
+        try:
+            from app.engine import clipcfg
+            style_hint = clipcfg.narration_hint()                       # the style this member chose (Settings -> Protection and growth); '' = the usual style
+        except Exception:
+            style_hint = ""
+        style = f"STYLE (how it sounds, but the facts rules below always win): {style_hint}\n" if style_hint else ""
         prompt = (
             f"You write the voice-over for a {game_name or 'gaming'} YouTube Shorts channel. The viewer has NOT seen the rest of this video and the "
             f"creator's own audio is muted, so YOUR words must make the moment make sense on their own.\n"
@@ -61,6 +67,7 @@ def write_commentary(transcript: str, streamer: str, title: str, max_words: int,
             "2. Then say what happens, in order, and why it is funny, tense or surprising.\n"
             "3. End with a short take or a question to the viewer.\n"
             "Stick to the facts: say only what the words in the clip and the facts above support. If you are not sure what exactly happens, describe the mood and what is said instead of inventing events, people, numbers or motives.\n"
+            + style +
             "Rules: talk about the player from outside (he, she, they, the player), never as 'I'. No 'this clip', no 'watch closely', no 'you won't believe', "
             "no stage directions, no emojis, no word-for-word quotes of the creator. Return only the narration text."
         )

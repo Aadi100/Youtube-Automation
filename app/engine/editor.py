@@ -238,6 +238,41 @@ def ask(text: str, state: Dict, duration: float) -> Tuple[Dict, List[str]]:
 
 
 # ---------------------------------------------------------------- the render
+LOOKS = {"none": "", "warm": "colorbalance=rs=.08:gs=.02:bs=-.10:rm=.06:bm=-.06", "cool": "colorbalance=rs=-.08:bs=.12:rm=-.05:bm=.08",
+         "vivid": "eq=saturation=1.5:contrast=1.08", "bw": "hue=s=0,eq=contrast=1.1", "vintage": "curves=preset=vintage",
+         "cinematic": "curves=preset=increase_contrast,eq=saturation=0.9,vignette=PI/6", "bright": "eq=brightness=0.06:contrast=1.05:saturation=1.1"}
+ANIMS = ("none", "fade", "pop")
+
+
+def out_size(spec: Dict) -> Tuple[int, int]:
+    """The size of the finished picture: the shape's full size times the spec's scale (a fast draft is smaller). Always even numbers."""
+    W, H = ASPECTS[spec["aspect"]]
+    k = float(spec.get("scale", 1.0))
+    return max(2, int(W * k) // 2 * 2), max(2, int(H * k) // 2 * 2)
+
+
+def _numv(v, d, lo, hi):
+    try:
+        return min(hi, max(lo, float(v)))
+    except (TypeError, ValueError):
+        return d
+
+
+def _hexv(v, d):
+    return v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else d
+
+
+def look_filter(look: Optional[Dict]) -> str:
+    """The ffmpeg filters of a clip's colour look: a preset, then the member's own brightness / contrast / colour. Empty when nothing is changed."""
+    if not look:
+        return ""
+    parts = [LOOKS.get(look.get("preset"), "")]
+    b, c, s = float(look.get("brightness", 0)), float(look.get("contrast", 1)), float(look.get("saturation", 1))
+    if abs(b) > 1e-3 or abs(c - 1) > 1e-3 or abs(s - 1) > 1e-3:
+        parts.append(f"eq=brightness={b:.3f}:contrast={c:.3f}:saturation={s:.3f}")
+    return ",".join(p for p in parts if p)
+
+
 def clean_spec(spec: Dict, info: Dict) -> Dict:
     """Check what the browser sent. Raises ValueError with a plain message."""
     dur = float(info["duration"])
@@ -269,8 +304,34 @@ def clean_spec(spec: Dict, info: Dict) -> Dict:
         col = str(t.get("color") or "#ffffff")
         texts.append({"text": " ".join(str(t["text"]).split())[:120], "t0": max(0.0, t0), "t1": min(dur, t1) if t1 > t0 else dur,
                       "x": frac(t.get("x"), 0.5), "y": frac(t.get("y"), 0.5), "size": int(min(200, max(20, float(t.get("size") or 64)))),
-                      "color": col if re.fullmatch(r"#[0-9a-fA-F]{6}", col) else "#ffffff"})
+                      "color": col if re.fullmatch(r"#[0-9a-fA-F]{6}", col) else "#ffffff",
+                      "bold": bool(t.get("bold", True)), "italic": bool(t.get("italic", False)), "upper": bool(t.get("upper", False)),
+                      "outline": _hexv(t.get("outline"), "#000000"), "ow": int(_numv(t.get("ow"), 4, 0, 16)), "shadow": int(_numv(t.get("shadow"), 1, 0, 8)),
+                      "bg": _hexv(t.get("bg"), ""), "anim": t.get("anim") if t.get("anim") in ANIMS else "none"})
+    total_len = sum(b - a for a, b in segs)
+
+    def num(v, d, lo, hi):
+        try:
+            return min(hi, max(lo, float(v)))
+        except (TypeError, ValueError):
+            return d
+    vol = num(spec.get("volume"), 1.0, 0.0, 2.0)
+    fi, fo = num(spec.get("fade_in"), 0.0, 0.0, 10.0), num(spec.get("fade_out"), 0.0, 0.0, 10.0)
+    if fi + fo > total_len:                                  # the two fades never overlap
+        k = total_len / max(fi + fo, 0.001)
+        fi, fo = fi * k, fo * k
+    lk = spec.get("look") if isinstance(spec.get("look"), dict) else {}
+    look = {"preset": lk.get("preset") if lk.get("preset") in LOOKS else "none", "brightness": round(num(lk.get("brightness"), 0.0, -0.5, 0.5), 3),
+            "contrast": round(num(lk.get("contrast"), 1.0, 0.5, 2.0), 3), "saturation": round(num(lk.get("saturation"), 1.0, 0.0, 3.0), 3)}
+    if not look_filter(look):
+        look = None
+    speed = num(spec.get("speed"), 1.0, 0.25, 4.0)
+    scale, crf = num(spec.get("scale"), 1.0, 0.25, 1.0), int(num(spec.get("crf"), 20, 14, 32))
+    zm = spec.get("zoom") if isinstance(spec.get("zoom"), dict) else {}
+    zf, zt = num(zm.get("from"), 1.0, 1.0, 3.0), num(zm.get("to"), 1.0, 1.0, 3.0)
+    zoom = {"from": round(zf, 3), "to": round(zt, 3), "x": round(num(zm.get("x"), 0.5, 0.0, 1.0), 3), "y": round(num(zm.get("y"), 0.5, 0.0, 1.0), 3)} if (zf > 1.001 or zt > 1.001) else None
     return {"segments": segs, "aspect": aspect, "fit": fit, "focus": {"x": frac(focus.get("x"), 0.5), "y": frac(focus.get("y"), 0.5)},
+            "volume": round(vol, 3), "fade_in": round(fi, 2), "fade_out": round(fo, 2), "speed": round(speed, 3), "zoom": zoom, "look": look, "scale": round(scale, 3), "crf": crf,
             "cam": {k: frac(cam.get(k), d) for k, d in (("x", 0.0), ("y", 0.0), ("w", 0.3), ("h", 0.3))} if cam else None,
             "captions": bool(spec.get("captions")), "texts": texts}
 
@@ -314,7 +375,17 @@ def build_ass(path: Path, W: int, H: int, segs: List[List[float]], words: Option
     for t in texts:
         body = t["text"].replace("{", "").replace("}", "").replace("\\", "")
         for oa, ob in to_output(segs, t["t0"], t["t1"]):
-            lines.append(f"Dialogue: 1,{format_timestamp(oa)},{format_timestamp(ob)},UserText,,0,0,0,,{{\\an5\\pos({int(t['x'] * W)},{int(t['y'] * H)})\\fs{int(t['size'] * (W / 1080 if H >= W else W / 1920 * 1.6))}\\c{_ass_color(t['color'])}}}{body}")
+            k = W / 1080 if H >= W else W / 1920 * 1.6
+            tags = f"\\an5\\pos({int(t['x'] * W)},{int(t['y'] * H)})\\fs{int(t['size'] * k)}\\c{_ass_color(t['color'])}\\b{1 if t.get('bold', True) else 0}\\i{1 if t.get('italic') else 0}"
+            if t.get("bg"):                                           # a box behind the text: a thick outline in the box colour
+                tags += f"\\bord{max(int(t.get('ow', 4)), 14) * k:.1f}\\3c{_ass_color(t['bg'])}\\shad0"
+            else:
+                tags += f"\\bord{int(t.get('ow', 4)) * k:.1f}\\3c{_ass_color(t.get('outline') or '#000000')}\\shad{int(t.get('shadow', 1)) * k:.1f}"
+            if t.get("anim") == "fade":
+                tags += "\\fad(250,250)"
+            elif t.get("anim") == "pop":
+                tags += "\\fscx60\\fscy60\\t(0,180,\\fscx100\\fscy100)"
+            lines.append(f"Dialogue: 1,{format_timestamp(oa)},{format_timestamp(ob)},UserText,,0,0,0,,{{{tags}}}{(body.upper() if t.get('upper') else body)}")
     from app.engine.video_processor import safe_name
     out = TEMP_DIR / f"{safe_name(path.stem)}_edit.ass"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -357,8 +428,8 @@ def layout(fit: str, W: int, H: int, info: Dict, focus: Dict, cam: Optional[Dict
     return f"[cv]scale={cwid}:{chei},crop={W}:{H}:{x}:{y}[lay]"
 
 
-def build_cmd(src: Path, out: Path, spec: Dict, info: Dict, ass: Optional[Path]) -> List[str]:
-    W, H = ASPECTS[spec["aspect"]]
+def build_cmd(src: Path, out: Path, spec: Dict, info: Dict, ass: Optional[Path], threads: int = 0) -> List[str]:
+    W, H = out_size(spec)
     segs = spec["segments"]
     n, a = len(segs), info["has_audio"]
     g = []
@@ -368,16 +439,64 @@ def build_cmd(src: Path, out: Path, spec: Dict, info: Dict, ass: Optional[Path])
             g.append(f"[0:a]atrim=start={s:.3f}:end={e:.3f},asetpts=PTS-STARTPTS[a{i}]")
     ins = "".join(f"[v{i}][a{i}]" if a else f"[v{i}]" for i in range(n))
     g.append(f"{ins}concat=n={n}:v=1:a={1 if a else 0}[cv]" + ("[ca]" if a else ""))
+    ca = "[ca]"
+    vol, fi, fo = float(spec.get("volume", 1.0)), float(spec.get("fade_in", 0.0)), float(spec.get("fade_out", 0.0))
+    if a and (abs(vol - 1.0) > 1e-3 or fi > 0 or fo > 0):          # the clip's own sound: louder, quieter, silent, faded
+        total_len = sum(e - s for s, e in segs)
+        chain = [f"volume={vol:.3f}"] + ([f"afade=t=in:st=0:d={fi:.2f}"] if fi > 0 else []) + ([f"afade=t=out:st={max(0.0, total_len - fo):.2f}:d={fo:.2f}"] if fo > 0 else [])
+        g.append("[ca]" + ",".join(chain) + "[caf]")
+        ca = "[caf]"
     g.append(layout(spec["fit"], W, H, info, spec["focus"], spec["cam"]))
+    lay = "[lay]"
+    lf = look_filter(spec.get("look"))
+    if lf:                                                           # the colour look of the clip (before anything is drawn on top)
+        g.append(f"{lay}{lf}[lk]")
+        lay = "[lk]"
+    zm = spec.get("zoom")
+    if zm:                                                           # a slow zoom or a punch-in: the picture grows over the clip and a window of it is kept
+        total_len = max(0.1, sum(e - s for s, e in segs))
+        z = f"({zm['from']}+({zm['to']}-{zm['from']})*min(t/{total_len:.3f},1))"
+        g.append(f"{lay}scale=w='trunc({W}*{z}/2)*2':h='trunc({H}*{z}/2)*2':eval=frame,crop={W}:{H}:x='(iw-{W})*{zm['x']}':y='(ih-{H})*{zm['y']}'[lay2]")
+        lay = "[lay2]"
+    pip = spec.get("pip")
+    if pip:                                                          # picture-in-picture: the member's reaction video in a corner for a stretch of the clip (its sound is not used)
+        pi = len(spec.get("overlays") or []) + 1
+        g.append(f"[{pi}:v]setpts=PTS-STARTPTS+{pip['t0']:.2f}/TB,scale=w='trunc({W}*{pip['scale']}/2)*2':h=-2" + (",drawbox=x=0:y=0:w=iw:h=ih:color=white@0.95:t=5" if pip.get("border") else "") + "[pipv]")
+        g.append(f"{lay}[pipv]overlay=x='(W-w)*{pip['x']}':y='(H-h)*{pip['y']}':enable='between(t,{pip['t0']:.2f},{pip['t1']:.2f})':eof_action=pass[pp]")
+        lay = "[pp]"
+    ovs = spec.get("overlays") or []
+    for k, ov in enumerate(ovs):                                     # stickers and logos: pictures on top of the clip (they are not zoomed), each for its own stretch of time
+        g.append(f"[{k + 1}:v]scale=w='trunc({W}*{ov['scale']}/2)*2':h=-2,format=rgba,colorchannelmixer=aa={ov['opacity']}[ov{k}]")
+        g.append(f"{lay}[ov{k}]overlay=x='(W-w)*{ov['x']}':y='(H-h)*{ov['y']}':enable='between(t,{ov['t0']:.2f},{ov['t1']:.2f})':shortest=1[o{k}]")
+        lay = f"[o{k}]"
     if ass:
-        g.append(f"[lay]ass='{_esc(ass)}'[vout]")
+        g.append(f"{lay}ass='{_esc(ass)}'[vout]")
         v = "[vout]"
     else:
-        v = "[lay]"
-    cmd = [FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-y", "-i", str(src), "-filter_complex", ";".join(g), "-map", v]
+        v = lay
+    speed = float(spec.get("speed", 1.0))
+    if abs(speed - 1.0) > 1e-3:                                      # slow motion or fast forward: picture and sound together
+        g.append(f"{v}setpts=PTS/{speed:.4f}[vsp]")
+        v = "[vsp]"
+        if a:
+            tempo, left = [], speed
+            while left > 2.0 + 1e-9:
+                tempo.append("atempo=2.0"); left /= 2.0
+            while left < 0.5 - 1e-9:
+                tempo.append("atempo=0.5"); left /= 0.5
+            tempo.append(f"atempo={left:.4f}")
+            g.append(f"{ca}{','.join(tempo)}[cas]")
+            ca = "[cas]"
+    pic_len = sum(e - s for s, e in segs) + 1.0
+    cmd = [FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-y"] + (["-threads", str(int(threads))] if threads else []) + ["-i", str(src)]
+    for ov in ovs:
+        cmd += ["-loop", "1", "-t", f"{pic_len:.2f}", "-i", str(ov["path"])]
+    if spec.get("pip"):
+        cmd += ["-ss", f"{float(spec['pip']['start']):.2f}", "-t", f"{float(spec['pip']['t1']) - float(spec['pip']['t0']) + 0.5:.2f}", "-i", str(spec["pip"]["path"])]
+    cmd += ["-filter_complex", ";".join(g), "-map", v]
     if a:
-        cmd += ["-map", "[ca]", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
-    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(out)]
+        cmd += ["-map", ca, "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
+    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(int(spec.get("crf", 20))), "-pix_fmt", "yuv420p", "-r", "30", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(out)]
     return cmd
 
 
@@ -389,11 +508,12 @@ def audio_of_cut(src: Path, segs: List[List[float]], out: Path) -> Path:
     return out
 
 
-def render(src: Path, out: Path, spec: Dict, info: Dict, on_progress: Optional[Callable[[float], None]] = None) -> Path:
+def render(src: Path, out: Path, spec: Dict, info: Dict, on_progress: Optional[Callable[[float], None]] = None, threads: int = 0) -> Path:
     """Cut, lay out, caption and write the finished video. `spec` must come from clean_spec."""
     out.parent.mkdir(parents=True, exist_ok=True)
-    W, H = ASPECTS[spec["aspect"]]
+    W, H = out_size(spec)
     total = sum(e - s for s, e in spec["segments"])
+    out_total = total / float(spec.get("speed", 1.0))        # how long the result is
     words = None
     if spec["captions"] and info["has_audio"]:
         from app.engine.subtitles import transcribe_audio_to_words
@@ -404,14 +524,14 @@ def render(src: Path, out: Path, spec: Dict, info: Dict, on_progress: Optional[C
         finally:
             wav.unlink(missing_ok=True)
     ass = build_ass(out, W, H, spec["segments"], words, spec["texts"]) if (words or spec["texts"]) else None
-    cmd = build_cmd(src, out, spec, info, ass)
+    cmd = build_cmd(src, out, spec, info, ass, threads)
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     try:
         for line in p.stdout:
             if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
                 try:
                     if on_progress:
-                        on_progress(min(1.0, float(line.split("=")[1]) / 1_000_000 / max(total, 0.1)))
+                        on_progress(min(1.0, float(line.split("=")[1]) / 1_000_000 / max(out_total, 0.1)))
                 except ValueError:
                     pass
         err = p.stderr.read()

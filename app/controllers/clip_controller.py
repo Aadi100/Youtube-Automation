@@ -87,6 +87,19 @@ def h_ai_saver_put(h):
     h.send_json(200, {"on": clipcfg.save_ai_saver(h.uid, bool(h.body_json().get("on")))})
 
 
+def h_growth(h):
+    from app.engine import clipcfg
+    h.send_json(200, clipcfg.growth_payload(h.uid))
+
+
+def h_growth_put(h):
+    from app.engine import clipcfg
+    try:
+        h.send_json(200, clipcfg.save_growth(h.uid, h.body_json()))
+    except ValueError as e:
+        h.send_json(400, {"error": str(e)})
+
+
 def h_sources(h):
     """Where THIS person's videos look for clips: YouTube and / or Twitch (every account sets its own)."""
     h.send_json(200, _sources_payload(h))
@@ -131,6 +144,8 @@ ROUTES = [
     (r"/api/trending", "PUT", h_trending_put),
     (r"/api/ai-saver", "GET", h_ai_saver),
     (r"/api/ai-saver", "PUT", h_ai_saver_put),
+    (r"/api/growth", "GET", h_growth),
+    (r"/api/growth", "PUT", h_growth_put),
     (r"/api/sources", "GET", h_sources),
     (r"/api/sources", "PUT", h_sources_put),
     (r"/api/clips", "GET", h_clips),

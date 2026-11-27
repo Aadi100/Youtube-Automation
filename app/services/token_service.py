@@ -36,6 +36,7 @@ DEFAULT_PRICING = {
     "twitch_source": 0.4,            # searching: every clip found on Twitch
     "kick_source": 0.4,              # searching: every clip found on Kick
     "email_send": 0.3,               # every email sent to a member
+    "social_caption": 1.0,           # one 'Rewrite with AI' for a TikTok / Instagram / Facebook caption (a failed rewrite is never charged)
     "trend_short": 2.0,              # Trending mode: looking at what is growing fastest for the game first (a Short); charged only when the video is made
     "trend_compilation": 8.0,        # the same for a compilation
     "server_per_video": 1.0,         # the server itself (CPU, disk, bandwidth, email service, domain, certificate): charged for every video made
@@ -284,6 +285,7 @@ ACTIONS = {   # price key -> (usage kind, provider, ledger reason, what to call 
     "editor_render": ("edit", "editor", "Editor render", "An Editor render"),
     "research_run": ("research", "run", "Research run", "A research run"),
     "email_send": ("email", "send", "Email sent to you", "An email"),
+    "social_caption": ("social", "caption", "AI caption for another platform", "An AI caption"),
 }
 
 

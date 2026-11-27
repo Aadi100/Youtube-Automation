@@ -1,6 +1,7 @@
 """Job runner and queue: start a pipeline run for a member, fair scheduling between members, cancel, heartbeat."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -74,6 +75,8 @@ def run_job(mode: str, params: dict, source: str, job_id: str, uid: str = None) 
         diy_env["CLIP_META"] = json.dumps(diy.get("own_meta") or {})
     if params.get("trending"):              # Trending mode: look at what is growing fastest for the game first (engine/trending.py)
         diy_env["CLIPSTUDIO_TRENDING"] = "1"
+    if params.get("prefer_clip") and re.fullmatch(r"[\w-]{1,80}", str(params["prefer_clip"])):      # spike alerts: this clip goes first
+        diy_env["CLIPSTUDIO_PREFER_CLIP"] = str(params["prefer_clip"])
     if params.get("want"):                  # what this video should be about; the run's AI prompts and search follow it (see engine/clipcfg.py)
         from app.engine import clipcfg
         w = clipcfg.clean_want(params["want"])

@@ -36,7 +36,9 @@ def h_videos(h):
     elif tw in TWITCH_STATUSES:
         cond = Q(__raw__={"twitch.status": tw})
     docs = Video.find_all(cond, order=("-created_at",), limit=200, **flt)
-    h.send_json(200, [_vid(x, h.is_owner()) for x in docs])
+    from app.services import permission_service
+    allowed = permission_service.allowed_map(h.uid)               # one lookup for the whole list
+    h.send_json(200, [_vid(x, h.is_owner(), allowed if x.get("user_id") == h.uid else None) for x in docs])
 
 
 def h_video(h, vid):
@@ -62,6 +64,52 @@ def h_video_twitch(h, vid):
     if not Video.update_where(id=oid(vid), fields=upd):
         return h.send_json(404, {"error": "not found"})
     h_video(h, vid)
+
+
+def h_video_social(h, vid):
+    """Record a manual post to another platform: {platform: tiktok|instagram|facebook, status: pending|posted|skipped, url?}."""
+    from urllib.parse import urlparse
+    from app.views.serializers import SOCIAL, SOCIAL_HOSTS, SOCIAL_STATUSES
+    data = h.body_json()
+    plat, status = data.get("platform"), data.get("status")
+    if plat not in SOCIAL:
+        raise ValueError(f"platform must be one of {sorted(SOCIAL)}")
+    if status not in SOCIAL_STATUSES:
+        raise ValueError(f"status must be one of {sorted(SOCIAL_STATUSES)}")
+    url = str(data.get("url", "")).strip()
+    if url:
+        host = (urlparse(url).hostname or "").lower()
+        if not url.startswith("https://") or not any(host == d or host.endswith("." + d) for d in SOCIAL_HOSTS[plat]):
+            raise ValueError("the link must be a https:// link on " + " or ".join(SOCIAL_HOSTS[plat]))
+    if not _video_for(h, vid):
+        return h.send_json(404, {"error": "not found"})
+    Video.update_where(id=oid(vid), fields={f"social.{plat}.status": status, f"social.{plat}.url": url or None, f"social.{plat}.updated_at": now()})
+    h_video(h, vid)
+
+
+def h_video_social_caption(h, vid):
+    """{platform, action: rewrite|reset}: a new AI caption for one platform (a token for a member), or back to the first one."""
+    from app.services import social_service
+    data = h.body_json()
+    doc = _video_for(h, vid)
+    if not doc:
+        return h.send_json(404, {"error": "not found"})
+    if data.get("action") == "reset":
+        social_service.reset(doc, data.get("platform"))
+        return h_video(h, vid)
+    if data.get("action") != "rewrite":
+        raise ValueError("action must be rewrite or reset")
+    res = social_service.rewrite(doc, h.uid, data.get("platform"))
+    doc = _video_for(h, vid)
+    out = _vid(doc, h.is_owner())
+    out["charged"] = res["charged"]
+    h.send_json(200, out)
+
+
+def h_social_price(h):
+    from app.services import social_service
+    p = social_service.price()
+    h.send_json(200, {"rewrite": p, "free": h.is_owner() or p <= 0})
 
 
 def h_video_reveal(h, vid):
@@ -338,6 +386,9 @@ ROUTES = [
     (r"/api/videos/([0-9a-f]{24})/upload", "POST", h_video_upload),
     (r"/api/videos/([0-9a-f]{24})/audio", "POST", h_video_audio),
     (r"/api/videos/([0-9a-f]{24})/twitch", "POST", h_video_twitch),
+    (r"/api/videos/([0-9a-f]{24})/social", "POST", h_video_social),
+    (r"/api/videos/([0-9a-f]{24})/social/caption", "POST", h_video_social_caption),
+    (r"/api/social/price", "GET", h_social_price),
     (r"/api/videos/([0-9a-f]{24})/reveal", "POST", h_video_reveal),
     (r"/media/([0-9a-f]{24})/(video|thumb)", "GET", h_media),
     (r"/file", "GET", h_file),
