@@ -113,9 +113,17 @@ def _voice() -> str:
 
 def synthesize(text: str, out_mp3: Path) -> List[Dict]:
     """TTS to mp3. Returns word timings (for captions)."""
-    words = asyncio.run(_tts(text, out_mp3))
+    from app.engine import kokoro_tts
+    provider = "kokoro"
+    try:
+        words = kokoro_tts.synthesize(text, _voice(), out_mp3)
+    except Exception as e:                                       # Kokoro not installed or its files not downloaded: the old connection, only if allowed
+        if os.environ.get("ALLOW_EDGE_TTS", "1") != "1":
+            raise
+        print(f"[Audio] free voice not available ({str(e)[:120]}) - trying the Microsoft read-aloud connection", flush=True)
+        words, provider = asyncio.run(_tts(text, out_mp3)), "edge-tts"
     from app.models import UsageEvent
-    UsageEvent.record("tts", provider="edge-tts", task="commentary", units=len(text))
+    UsageEvent.record("tts", provider=provider, task="commentary", units=len(text))
     return words
 
 

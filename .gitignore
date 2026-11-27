@@ -11,6 +11,7 @@ state/*
 !state/playbook.json
 backups/
 music/*
+models/
 !music/.gitkeep
 *.mp4
 *.mp3

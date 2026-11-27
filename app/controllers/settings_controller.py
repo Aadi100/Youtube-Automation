@@ -24,11 +24,12 @@ def h_voice_preview(h):
         return h.send_json(404, {"error": "unknown voice"})
     f = TEMP_DIR / f"voice_preview_{vid}.mp3"
     if not f.exists():
-        import asyncio
-
-        import edge_tts
+        from app.engine import kokoro_tts
         TEMP_DIR.mkdir(exist_ok=True)
-        asyncio.run(edge_tts.Communicate("Wait, did you see that? This is how I would narrate your next clip.", vid).save(str(f)))
+        try:
+            kokoro_tts.synthesize("Wait, did you see that? This is how I would narrate your next clip.", vid, f)
+        except kokoro_tts.Unavailable as e:
+            return h.send_json(503, {"error": str(e)})
     body = f.read_bytes()
     h.send_response(200)
     h.send_header("Content-Type", "audio/mpeg")

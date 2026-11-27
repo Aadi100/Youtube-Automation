@@ -209,8 +209,11 @@ async def _tts(text: str, voice: str, out: Path) -> List[Dict]:
 
 def speak(text: str, voice: str, out: Path) -> List[Dict]:
     """Narration as an mp3 and the time of every word. Raises RuntimeError when the voice service cannot be reached."""
+    from app.engine import kokoro_tts                            # the free voice on this computer; the Microsoft read-aloud connection is not used (it is refused and not allowed commercially)
     try:
-        words = asyncio.run(_tts(text, voice, out))
+        words = kokoro_tts.synthesize(text, voice, out)
+    except kokoro_tts.Unavailable as e:
+        raise RuntimeError(str(e)) from e
     except Exception as e:
         raise RuntimeError(f"The narrator voice could not be made ({type(e).__name__}). Try again in a minute.") from e
     if not out.is_file() or out.stat().st_size < 500 or not words:

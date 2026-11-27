@@ -313,7 +313,7 @@ def run(d: Dict) -> None:
             mp3 = work / f"nar_{sc['n']:02d}.mp3"
             words = SM.speak(sc["narration"], voice, mp3)
             seconds = max(float(sc["seconds"]), SM.duration(mp3) + 0.5)
-            events.append({"kind": "tts", "provider": "edge-tts", "task": "story", "units": len(sc["narration"])})
+            events.append({"kind": "tts", "provider": "kokoro", "task": "story", "units": len(sc["narration"])})
             clip = work / f"clip_{sc['n']:02d}.mp4"
             kind = "motion"
             if provider == "veo" and counts["video"] < cap:
