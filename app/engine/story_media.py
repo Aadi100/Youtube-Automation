@@ -225,6 +225,12 @@ async def _tts(text: str, voice: str, out: Path) -> List[Dict]:
     return words
 
 
+def narrator_engine() -> str:
+    """Which narrator the next scene will get: azure (with feelings) when it is set up and not switched off, else kokoro (free)."""
+    from app.engine import azure_tts
+    return "azure" if azure_tts.configured() and (os.environ.get("STORY_VOICE_ENGINE") or "auto").lower() != "kokoro" else "kokoro"
+
+
 class Words(list):
     """The words with their times, and which voice made them (`engine`: azure or kokoro, for the usage report) and why the better voice was not used (`note`)."""
     engine = "kokoro"

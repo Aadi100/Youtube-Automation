@@ -27,6 +27,7 @@ DEFAULT_PRICING = {
     "image_flux": 2.0,               # the Best thumbnail level: one finished thumbnail drawn by FLUX (Gemini's planning is charged on top, per 1,000 AI tokens)
     "image_gemini": 5.0,             # one background image from Gemini (only when the Better level uses the Gemini image service in Settings)
     "tts_per_1k_chars": 0.0,         # narrator voice, per 1,000 characters (free service; raise it if you want to charge for server time)
+    "tts_azure_per_1k_chars": 3.0,   # story narrator WITH FEELINGS (Azure Speech), per 1,000 characters: it costs you real money after the free allowance, so price it above the free voice
     "whisper_per_min": 0.0,          # captions: per minute of speech transcribed (runs on your server)
     "safety_local_per_clip": 0.0,    # the local nudity detector, per clip checked (runs on your server)
     "search_per_video": 0.5,         # finding the clip: search, sound analysis, picking the moment (charged only when a video is made)
@@ -39,6 +40,9 @@ DEFAULT_PRICING = {
     "story_script": 1.0,             # writing or splitting the script of a story video
     "story_scene_video": 8.0,        # one scene made by an AI VIDEO model (the characters really move). The model costs real money per second: price it above your cost
     "story_scene_motion": 0.3,       # one scene made from a picture with camera movement (no AI video model, cheap)
+    "story_captions": 0.3,           # story video: burning captions into the scenes (once for each part)
+    "story_render": 1.0,             # story video: making the finished video by itself at the end (once for each part)
+    "story_redo_scene": 1.0,         # story video: making one picture (and its scene) again
     "social_caption": 1.0,           # one 'Rewrite with AI' for a TikTok / Instagram / Facebook caption (a failed rewrite is never charged)
     "trend_short": 2.0,              # Trending mode: looking at what is growing fastest for the game first (a Short); charged only when the video is made
     "trend_compilation": 8.0,        # the same for a compilation
@@ -165,7 +169,7 @@ def price_event(e: Dict, p: Dict) -> float:
     if k == "image":
         return float(e.get("units") or 1) * (p["image_gemini"] if prov == "gemini" else p["image_flux"] if prov == "flux" else p["image_free"])
     if k == "tts":
-        return float(e.get("units") or 0) / 1000.0 * p["tts_per_1k_chars"]
+        return float(e.get("units") or 0) / 1000.0 * (p["tts_azure_per_1k_chars"] if prov == "azure" else p["tts_per_1k_chars"])
     if k == "whisper":
         return float(e.get("units") or 0) / 60.0 * p["whisper_per_min"]
     if k == "safety_local":
@@ -179,7 +183,7 @@ def price_event(e: Dict, p: Dict) -> float:
     if k == "trend":
         return float(e.get("units") or 0) * (p["trend_compilation"] if prov == "compilation" else p["trend_short"])
     if k == "story":                                              # a story video: the script, and every scene by the way it was made
-        return float(e.get("units") or 0) * float(p.get({"script": "story_script", "video": "story_scene_video", "motion": "story_scene_motion"}.get(prov, "story_script")) or 0)
+        return float(e.get("units") or 0) * float(p.get({"script": "story_script", "video": "story_scene_video", "motion": "story_scene_motion", "captions": "story_captions", "render": "story_render", "redo": "story_redo_scene"}.get(prov, "story_script")) or 0)
     if k == "source":
         return float(e.get("units") or 0) * float(p.get({"twitch": "twitch_source", "kick": "kick_source"}.get(prov, "youtube_source")) or 0)
     return 0.0
@@ -292,6 +296,7 @@ ACTIONS = {   # price key -> (usage kind, provider, ledger reason, what to call 
     "email_send": ("email", "send", "Email sent to you", "An email"),
     "social_caption": ("social", "caption", "AI caption for another platform", "An AI caption"),
     "story_script": ("story", "script", "Story script", "A story script"),
+    "story_redo_scene": ("story", "redo", "Story video: a scene made again", "Making a scene again"),
 }
 
 

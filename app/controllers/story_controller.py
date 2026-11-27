@@ -46,7 +46,7 @@ def h_script(h):
 def h_estimate(h):
     d = h.body_json()
     scripts = d.get("scripts") if isinstance(d.get("scripts"), list) and d.get("scripts") else [d.get("script") or {}]
-    es = [svc.estimate(story_script.clean(x), str(d.get("provider") or "motion"), h.is_owner()) for x in scripts[:story_script.MAX_PARTS]]
+    es = [svc.estimate(story_script.clean(x), str(d.get("provider") or "motion"), h.is_owner(), len(scripts[:story_script.MAX_PARTS]), bool(d.get("captions", True)), "render" if d.get("finish") == "render" else "open") for x in scripts[:story_script.MAX_PARTS]]
     h.send_json(200, {**es[0], "parts": len(es), **{k: sum(e[k] for e in es) for k in ("scenes", "pictures", "video_scenes", "motion_scenes", "tokens")}})
 
 
@@ -70,6 +70,11 @@ def h_one(h, sid):
 def h_cancel(h, sid):
     r = svc.cancel(h.uid, sid)
     h.send_json(200 if r else 404, r or {"error": "not found"})
+
+
+@_safe
+def h_redo(h, sid, n):
+    h.send_json(200, svc.redo_scene(h.uid, sid, int(n)))
 
 
 def h_frame(h, sid, n):
@@ -102,6 +107,7 @@ ROUTES = [
     (r"/api/stories/([0-9a-f]{24})", "GET", h_one),
     (r"/api/stories/([0-9a-f]{24})/cancel", "POST", h_cancel),
     (r"/api/stories/([0-9a-f]{24})/frame/(\d{1,2})", "GET", h_frame),
+    (r"/api/stories/([0-9a-f]{24})/scenes/(\d{1,2})/redo", "POST", h_redo),
 ]
 bp = Blueprint("stories", __name__)
 register(bp, ROUTES)

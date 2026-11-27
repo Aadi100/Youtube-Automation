@@ -25,6 +25,7 @@ SERVICES = {
     ("scan", "finder"): ("Clip Finder scans", "scans"), ("edit", "editor"): ("Editor renders", "renders"), ("research", "run"): ("Research runs", "runs"),
     ("storage", "disk"): ("Extra storage", "GB-days"), ("social", "caption"): ("AI captions for other platforms", "captions"),
     ("story", "script"): ("Story scripts", "scripts"), ("story", "video"): ("Story scenes made by AI video", "scenes"), ("story", "motion"): ("Story scenes with camera movement", "scenes"),
+    ("story", "captions"): ("Story captions", "parts"), ("story", "render"): ("Story finished video", "parts"), ("story", "redo"): ("Story scenes made again", "scenes"), ("tts", "azure"): ("Narrator voice (Azure, with emotion)", "characters"),
 }
 
 

@@ -28,7 +28,7 @@ from app.services import token_service as tokens
 MAX_QUEUE = 20
 STALE_SECONDS = 900
 ACTIVE = ("queued", "running")
-DEFAULTS = {"daily_limit": 3, "members_video": False, "video_per_day": 16, "max_video_scenes": 8}
+DEFAULTS = {"daily_limit": 3, "members_video": False, "video_per_day": 16, "max_video_scenes": 8, "parts_discount": 10, "tokens_per_day": 0, "redo_per_story": 5}
 
 
 class Cancelled(Exception):
@@ -47,7 +47,7 @@ def settings() -> Dict:
 
 def set_settings(data: Dict) -> Dict:
     upd = {}
-    for k, (lo, hi) in (("daily_limit", (0, 50)), ("video_per_day", (0, 200)), ("max_video_scenes", (0, 12))):
+    for k, (lo, hi) in (("daily_limit", (0, 50)), ("video_per_day", (0, 200)), ("max_video_scenes", (0, 12)), ("parts_discount", (0, 90)), ("tokens_per_day", (0, 100000)), ("redo_per_story", (0, 50))):
         if k in data and data[k] not in (None, ""):
             try:
                 v = int(data[k])
@@ -84,14 +84,17 @@ def providers(is_owner: bool) -> List[Dict]:
     return out
 
 
-def estimate(script: Dict, provider: str, is_owner: bool) -> Dict:
+def estimate(script: Dict, provider: str, is_owner: bool, parts: int = 1, captions: bool = True, finish: str = "open") -> Dict:
     p = tokens.pricing()
     n = len(script["scenes"])
     vid = len(SS.key_scenes(script, int(settings()["max_video_scenes"]))) if provider == "veo" else 0
     mot = n - vid
     chars = sum(len(s["narration"]) for s in script["scenes"])
-    total = n * p["image_flux"] + vid * p["story_scene_video"] + mot * p["story_scene_motion"] + chars / 1000.0 * p["tts_per_1k_chars"]
-    return {"scenes": n, "pictures": n, "video_scenes": vid, "motion_scenes": mot, "tokens": 0 if is_owner else max(1, math.ceil(total)), "free": is_owner}
+    voice = p["tts_azure_per_1k_chars"] if SM.narrator_engine() == "azure" else p["tts_per_1k_chars"]
+    total = n * p["image_flux"] + vid * p["story_scene_video"] + mot * p["story_scene_motion"] + chars / 1000.0 * voice + (p["story_captions"] if captions else 0) + (p["story_render"] if finish == "render" else 0)
+    disc = int(settings()["parts_discount"]) if parts > 1 else 0          # a story told in several parts costs a little less for each part
+    total *= (100 - disc) / 100.0
+    return {"scenes": n, "pictures": n, "video_scenes": vid, "motion_scenes": mot, "discount": disc, "tokens": 0 if is_owner else max(1, math.ceil(total - 1e-9)), "free": is_owner}
 
 
 # ---------------------------------------------------------------- trends and the script
@@ -179,8 +182,13 @@ def start_series(uid, scripts: List[Dict], provider: str = "motion", voice: str 
     from app.services import editor_service
     if editor_service.used_bytes(uid) + 400 * 1024 * 1024 * len(cleaned) > editor_service.quota_bytes():
         raise ValueError("Your editor storage is nearly full. Delete videos you no longer need in the editor, then try again.")
-    ests = [estimate(s, provider, owner) for s in cleaned]
+    ests = [estimate(s, provider, owner, len(cleaned), bool(captions), "render" if finish == "render" else "open") for s in cleaned]
     total = sum(e["tokens"] for e in ests)
+    cap_day = int(st["tokens_per_day"])
+    if not owner and cap_day > 0:                                   # the most tokens a member may spend on story videos in a day
+        spent = sum(int(j.get("charged") or 0) if j.get("status") == "done" else int(j.get("reserved") or 0) for j in StoryJob.find_all(user_id=uid, created_at__gte=day, status__in=["queued", "running", "done"]))
+        if spent + total > cap_day:
+            raise ValueError(f"You can spend {cap_day} tokens a day on story videos and you have used {spent} today. This story needs about {total}. Make it smaller (fewer scenes, parts or AI video) or try again tomorrow.")
     if not owner and total > 0 and tokens.balance(uid) < total:
         raise ValueError(f"Not enough tokens: this story costs about {total} and you have {tokens.balance(uid)}. Use camera movement, fewer scenes or fewer parts, or ask the owner for more.")
     made, t0 = [], now()
@@ -195,7 +203,7 @@ def start_series(uid, scripts: List[Dict], provider: str = "motion", voice: str 
                     raise ValueError(f"Not enough tokens: this story costs about {total} and you have {tokens.balance(uid)}. Use camera movement, fewer scenes or fewer parts, or ask the owner for more.")
             v = SM.voice_for(s.get("genre"), voice)
             j = StoryJob(user_id=uid, status="queued", step="Waiting in line…", pct=0, created_at=t0 + timedelta(milliseconds=i), script=s, provider=provider, voice=v,
-                         finish="render" if finish == "render" else "open", captions=bool(captions), reserved=reserved, estimate=est,
+                         finish="render" if finish == "render" else "open", captions=bool(captions), reserved=reserved, estimate=est, discount=int(est.get("discount") or 0),
                          scenes=[{"n": x["n"], "status": "waiting"} for x in s["scenes"]], counts={}, heartbeat=time.time()).save()
             made.append(j)
     except Exception:
@@ -213,7 +221,7 @@ def view(d: Dict) -> Dict:
     if d.get("status") == "queued":
         ahead = StoryJob.total(status="queued", created_at__lt=d["created_at"]) + StoryJob.total(status="running")
     return {"id": str(d["_id"]), "status": d.get("status"), "step": d.get("step") or "", "pct": int(d.get("pct") or 0), "ahead": ahead, "title": (d.get("script") or {}).get("title"),
-            "provider": d.get("provider"), "series": (d.get("script") or {}).get("series"), "scenes": d.get("scenes") or [], "estimate": d.get("estimate"), "result": d.get("result"), "charged": d.get("charged"), "error": d.get("error"),
+            "provider": d.get("provider"), "series": (d.get("script") or {}).get("series"), "scenes": d.get("scenes") or [], "estimate": d.get("estimate"), "result": d.get("result"), "charged": d.get("charged"), "receipt": d.get("receipt") or ({"lines": [], "held": int(d.get("reserved") or 0), "used": 0, "returned": int(d.get("reserved") or 0), "extra": 0, "free": False} if d.get("status") in ("error", "cancelled") else None), "error": d.get("error"),
             "created_at": d["created_at"].isoformat() if d.get("created_at") else None}
 
 
@@ -282,7 +290,28 @@ def _record(d: Dict, events: List[Dict]) -> int:
             UsageEvent(user_id=str(d["user_id"]), video_id=str(d["_id"]), ok=True, cost=float(c), billed=not owner, t=now(), **e).save()
         except Exception:
             pass
+    total *= (100 - int(d.get("discount") or 0)) / 100.0
     return 0 if owner else max(0, math.ceil(total - 1e-9))
+
+
+def _receipt(d: Dict, events: List[Dict], used: int) -> Dict:
+    """What was held, what each part cost, what was used and what came back (shown to the member like a shop receipt)."""
+    p = tokens.pricing()
+    owner = _owner(d["user_id"])
+    names = {("image", ""): ("Pictures", "pictures"), ("tts", ""): ("Narrator voice", "characters"), ("story", "captions"): ("Captions", "parts"), ("story", "render"): ("Finished video made for you", "parts"), ("story", "motion"): ("Scenes with camera movement", "scenes"), ("story", "video"): ("Scenes with AI video", "scenes")}
+    lines: Dict[tuple, Dict] = {}
+    for e in events:
+        key = (e.get("kind"), e.get("provider") if e.get("kind") == "story" else "")
+        if e.get("kind") == "tts" and e.get("provider") == "azure":
+            key = ("tts", "")
+        if key not in names:
+            continue
+        ln = lines.setdefault(key, {"label": names[key][0], "unit": names[key][1], "qty": 0, "tokens": 0.0})
+        ln["qty"] += int(e.get("units") or 0)
+        ln["tokens"] += tokens.price_event({**e, "ok": True}, p)
+    reserved = int(d.get("reserved") or 0)
+    disc = int(d.get("discount") or 0)
+    return {"discount": disc, "discount_tokens": round(sum(v["tokens"] for v in lines.values()) * disc / 100.0, 2), "lines": [{**v, "tokens": round(v["tokens"], 2)} for v in lines.values()], "held": reserved, "used": int(used), "returned": max(0, reserved - int(used)), "extra": max(0, int(used) - reserved), "free": bool(owner)}
 
 
 # ---------------------------------------------------------------- the worker
@@ -386,10 +415,13 @@ def run(d: Dict) -> None:
                 result["render_id"] = eps.enqueue(uid, project["id"], script["title"], script.get("description") or "")["id"]
             except ValueError as e:
                 result["render_note"] = str(e)
-        script_events = []
-        used = _record(d, events + script_events)
+        if d.get("captions", True):
+            events.append({"kind": "story", "provider": "captions", "task": "story", "units": 1})
+        if result.get("render_id"):
+            events.append({"kind": "story", "provider": "render", "task": "story", "units": 1})
+        used = _record(d, events)
         _refund(d, used)
-        StoryJob.objects(id=d["_id"]).update_one(set__status="done", set__pct=100, set__step="Done", set__result=result, set__scenes=scenes_state, set__counts=counts, set__charged=used)
+        StoryJob.objects(id=d["_id"]).update_one(set__status="done", set__pct=100, set__step="Done", set__result=result, set__scenes=scenes_state, set__counts=counts, set__charged=used, set__receipt=_receipt(d, events, used))
         try:
             from app.services import notification_service as notes
             notes.notify(uid, "story", "Your story video is ready", f"'{script['title']}' is in Edit projects, scene by scene. Change anything you like, then make the video.", f"#/projects/{project['id']}", "success")
@@ -420,6 +452,61 @@ def _cleanup(source_ids: List[str], work: Path) -> None:
         except Exception:
             pass
     shutil.rmtree(work, ignore_errors=True)
+
+
+def redo_scene(uid, sid: str, n: int) -> Dict:
+    """Make ONE picture of a finished story again (new picture, same words, same place in the project). Costs the redo price; a failed try costs nothing."""
+    try:
+        d = StoryJob.find_one(id=oid(sid))
+    except Exception:
+        d = None
+    if not d or d.get("user_id") != str(uid):
+        raise LookupError("story")
+    n = int(n)
+    st = next((x for x in d.get("scenes") or [] if int(x.get("n") or 0) == n), None)
+    sc = next((x for x in (d.get("script") or {}).get("scenes") or [] if int(x.get("n") or 0) == n), None)
+    if d.get("status") != "done" or not st or not sc or not st.get("source"):
+        raise ValueError("Only a scene of a finished story can be made again.")
+    if st.get("kind") != "motion":
+        raise ValueError("This scene is AI video. Only scenes with camera movement can be made again here.")
+    cap = int(settings()["redo_per_story"])
+    if int(d.get("redos") or 0) >= cap:
+        raise ValueError(f"You can make pictures again {cap} time{'s' if cap != 1 else ''} for one story.")
+    why = tokens.small_shortfall(str(uid), "story_redo_scene")
+    if why:
+        raise ValueError(why)
+    work = _dir(str(uid), sid)
+    kf, new = work / f"kf_{n:02d}.png", work / f"kf_{n:02d}_new.png"
+    pic, why = SM.make_keyframe(sc, d["script"], new)
+    if pic is None or why:
+        new.unlink(missing_ok=True)
+        raise ValueError(f"The picture could not be made again. {why or ''} Nothing was charged.".replace("  ", " "))
+    mp3, clip, tmp = work / f"nar_{n:02d}.mp3", work / f"clip_{n:02d}.mp4", work / f"scene_{n:02d}_new.mp4"
+    try:
+        words = SM.speak(sc["narration"], d.get("voice") or SM.voice_for(d["script"].get("genre")), mp3, mood=sc.get("mood") or "calm")
+        seconds = max(float(st.get("seconds") or sc["seconds"]), SM.duration(mp3) + 0.5)
+        SM.motion_clip(new, seconds, sc["camera"], clip)
+        SM.build_scene(clip, mp3, words, seconds, tmp, captions=bool(d.get("captions", True)))
+        os.replace(tmp, work / f"scene_{n:02d}.mp4")
+        os.replace(new, kf)
+        info = editor.probe(work / f"scene_{n:02d}.mp4")
+        EditSource.objects(id=st["source"]).update_one(set__duration=info["duration"])
+    finally:
+        for f in (new, clip, mp3, tmp):
+            f.unlink(missing_ok=True)
+    price = 0.0 if _owner(uid) else float(tokens.pricing().get("story_redo_scene") or 0)
+    tokens.charge_action(str(uid), "story_redo_scene", sid)
+    r = dict(d.get("receipt") or {})
+    lines = [dict(x) for x in r.get("lines") or []]
+    ln = next((x for x in lines if x.get("label") == "Scenes made again"), None)
+    if ln is None:
+        ln = {"label": "Scenes made again", "unit": "scenes", "qty": 0, "tokens": 0.0}
+        lines.append(ln)
+    ln["qty"] += 1
+    ln["tokens"] = round(ln["tokens"] + price, 2)
+    r["lines"], r["later"] = lines, round(float(r.get("later") or 0) + price, 2)
+    StoryJob.objects(id=d["_id"]).update_one(inc__redos=1, set__receipt=r)
+    return view(StoryJob.find_one(id=d["_id"]))
 
 
 def _make_project(uid: str, script: Dict, source_ids: List[str], scenes: List[Dict]) -> Dict:

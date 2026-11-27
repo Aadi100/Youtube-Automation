@@ -76,6 +76,7 @@ async function stories() {
       <label class="pjchk"><input type="checkbox" id="st_fin"><span>Make the finished video by itself at the end (otherwise you can change things in the editor first)</span></label>
       <div class="stest" id="st_est" style="margin:12px 0">Working out the price…</div><div class="row" style="gap:8px"><button class="pri" id="st_go">Make my story video</button><span class="muted">It runs in the background. You can leave this page.</span></div>`;
     $("#st_make").querySelectorAll("[name=st_prov]").forEach(r => r.onchange = () => { provider = r.value; estimate(); });
+    ["#st_cap", "#st_fin"].forEach(q => { if ($(q)) $(q).onchange = () => estimate(); });
     $("#st_go").onclick = guard(async () => {
       $("#st_go").disabled = true;
       try { const r = await api("/api/stories", {method: "POST", body: {scripts, provider, finish: $("#st_fin").checked ? "render" : "open", captions: $("#st_cap").checked}}); toast(scripts.length > 1 ? `Your ${scripts.length} parts are in the line` : "Your story is in the line"); follow(r.id); }
@@ -84,8 +85,8 @@ async function stories() {
     estimate();
   }
   const estimate = guard(async () => {
-    const e = await api("/api/stories/estimate", {method: "POST", body: {scripts, provider}}); const box = $("#st_est"); if (!box) return;
-    const pn = e.parts > 1 ? ` in ${e.parts} parts` : "";
+    const e = await api("/api/stories/estimate", {method: "POST", body: {scripts, provider, captions: $("#st_cap") ? $("#st_cap").checked : true, finish: $("#st_fin") && $("#st_fin").checked ? "render" : "open"}}); const box = $("#st_est"); if (!box) return;
+    const pn = e.parts > 1 ? ` in ${e.parts} parts${e.discount ? ` (${e.discount}% off each part)` : ""}` : "";
     box.innerHTML = e.free ? `${e.scenes} scenes${pn}: free for the owner (the usage is still recorded).` : `${e.scenes} scenes${pn}: <b>about ${e.tokens} tokens</b> (${e.pictures} pictures${e.video_scenes ? `, ${e.video_scenes} AI video scene${e.video_scenes === 1 ? "" : "s"}` : ""}${e.motion_scenes ? `, ${e.motion_scenes} with camera movement` : ""}). The tokens are held now and what is not used comes back. A failed story costs nothing.`;
   });
   /* ---- progress */
@@ -96,9 +97,24 @@ async function stories() {
       <span class="muted">${j.status === "queued" ? (j.ahead ? `${j.ahead} ahead of yours` : "You are next") : esc(j.status === "error" ? j.error : j.step || "")}</span><span class="grow"></span>
       ${act ? `<button id="stj_cancel">Cancel</button>` : j.status === "done" ? `<a class="btn pri" href="#/projects/${j.result.project_id}">Open it in Edit projects</a>` : ""}</div>
       ${act ? `<div class="pgx-bar" style="margin-top:10px"><i style="width:${j.pct}%"></i></div>` : ""}
-      <div class="stthumbs">${(j.scenes || []).map(s => `<div class="stth ${s.status}" title="${esc(s.note || "")}">${s.status === "done" || ["running"].includes(j.status) && s.status !== "waiting" ? `<img alt="" src="/api/stories/${j.id}/frame/${s.n}?t=${Date.now() % 100000}" onerror="this.style.display='none'">` : ""}<span>${s.n}</span>${s.kind ? `<i>${s.kind === "video" ? "AI video" : "camera"}</i>` : ""}</div>`).join("")}</div>
+      <div class="stthumbs">${(j.scenes || []).map(s => `<div class="stth ${s.status}" title="${esc(s.note || "")}">${s.status === "done" || ["running"].includes(j.status) && s.status !== "waiting" ? `<img alt="" src="/api/stories/${j.id}/frame/${s.n}?t=${Date.now() % 100000}" onerror="this.style.display='none'">` : ""}<span>${s.n}</span>${s.kind ? `<i>${s.kind === "video" ? "AI video" : "camera"}</i>` : ""}${j.status === "done" && s.kind === "motion" ? `<button class="stredo" data-redo="${s.n}" title="Make this picture again (costs a few tokens)">↻</button>` : ""}</div>`).join("")}</div>
+      ${receipt(j)}
       ${j.status === "done" ? `<p class="muted" style="margin:10px 0 0">${j.result.video_scenes} scene${j.result.video_scenes === 1 ? "" : "s"} with AI video, ${j.result.motion_scenes} with camera movement. You paid ${j.charged || 0} token${j.charged === 1 ? "" : "s"}. ${j.result.render_id ? "The video is being made now (see My videos)." : "Change anything you like in the editor, then press Make video."}${j.result.realistic ? " The look is realistic, so the upload will tick YouTube's AI label." : ""}</p>` : ""}</div>`;
+    box.querySelectorAll("[data-redo]").forEach(b => b.onclick = guard(async () => {
+      if (!confirm("Make this picture again? A new picture is drawn and the narration is recorded again. This costs tokens (see the price in your estimate); if it fails you pay nothing.")) return;
+      b.disabled = true; b.textContent = "…";
+      try { const r = await api(`/api/stories/${j.id}/scenes/${b.dataset.redo}/redo`, {method: "POST"}); toast("The picture was made again"); drawRun(r); } finally { b.disabled = false; }
+    }));
     if ($("#stj_cancel")) $("#stj_cancel").onclick = guard(async () => { await api(`/api/stories/${j.id}/cancel`, {method: "POST"}); poll(j.id); });
+  }
+  function receipt(j) {
+    const r = j.receipt; if (!r || !["done", "error", "cancelled"].includes(j.status)) return "";
+    const n = x => (Math.round(x * 100) / 100).toString();
+    return `<div class="strcpt"><b>Receipt</b>${r.free ? `<div class="muted">Free for the owner (the usage is still recorded).</div>` : ""}<table>${(r.lines || []).map(l => `<tr><td>${esc(l.label)}</td><td class="muted">${l.qty.toLocaleString()} ${esc(l.unit)}</td><td>${n(l.tokens)}</td></tr>`).join("")}
+      ${r.discount ? `<tr><td colspan="2">Parts discount (${r.discount}%)</td><td>-${n(r.discount_tokens)}</td></tr>` : ""}
+      <tr class="sep"><td colspan="2">Held when you started</td><td>${r.held}</td></tr>
+      <tr><td colspan="2"><b>Used</b></td><td><b>${r.used}</b></td></tr>
+      <tr><td colspan="2">Given back</td><td>${r.returned}</td></tr>${r.extra ? `<tr><td colspan="2">Taken in addition</td><td>${r.extra}</td></tr>` : ""}${r.later ? `<tr><td colspan="2">Scenes made again (paid when you pressed the button)</td><td>${n(r.later)}</td></tr>` : ""}</table>${j.status !== "done" ? `<div class="muted">Nothing was charged for this story.</div>` : ""}</div>`;
   }
   const stopPoll = () => { if (pollT) clearInterval(pollT); pollT = null; };
   async function poll(id) { try { const j = await api(`/api/stories/${id}`); drawRun(j); if (!["queued", "running"].includes(j.status)) { stopPoll(); drawHist(); const nx = (await api("/api/stories")).stories.filter(s => ["queued", "running"].includes(s.status) && s.series && j.series && s.series.title === j.series.title).pop(); if (nx) follow(nx.id); } } catch (e) { stopPoll(); } }
