@@ -90,7 +90,10 @@ _CAM = {"slow push in": "z='min(1+0.0009*on,1.25)':x='iw/2-(iw/zoom/2)':y='ih/2-
         "pan left": "z=1.15:x='(iw-iw/zoom)*(1-on/{n})':y='ih/2-(ih/zoom/2)'",
         "pan right": "z=1.15:x='(iw-iw/zoom)*(on/{n})':y='ih/2-(ih/zoom/2)'",
         "slow tilt up": "z=1.15:x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*(1-on/{n})'",
-        "static with gentle movement": "z='1.04+0.01*sin(on/18)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"}
+        "static with gentle movement": "z='1.04+0.01*sin(on/18)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'",
+        "handheld": "z=1.08:x='iw/2-(iw/zoom/2)+6*sin(on/5)+3*sin(on/2.3)':y='ih/2-(ih/zoom/2)+5*cos(on/6)+2*sin(on/1.9)'",
+        "push in left": "z='min(1+0.0012*on,1.3)':x='(iw-iw/zoom)*0.25':y='ih/2-(ih/zoom/2)'",
+        "push in right": "z='min(1+0.0012*on,1.3)':x='(iw-iw/zoom)*0.75':y='ih/2-(ih/zoom/2)'"}
 
 
 def motion_clip(image: Path, seconds: float, camera: str, out: Path) -> Path:
@@ -222,18 +225,36 @@ async def _tts(text: str, voice: str, out: Path) -> List[Dict]:
     return words
 
 
-def speak(text: str, voice: str, out: Path) -> List[Dict]:
-    """Narration as an mp3 and the time of every word. Raises RuntimeError when the voice service cannot be reached."""
-    from app.engine import kokoro_tts                            # the free voice on this computer; the Microsoft read-aloud connection is not used (it is refused and not allowed commercially)
-    try:
-        words = kokoro_tts.synthesize(text, voice, out)
-    except kokoro_tts.Unavailable as e:
-        raise RuntimeError(str(e)) from e
-    except Exception as e:
-        raise RuntimeError(f"The narrator voice could not be made ({type(e).__name__}). Try again in a minute.") from e
+class Words(list):
+    """The words with their times, and which voice made them (`engine`: azure or kokoro, for the usage report) and why the better voice was not used (`note`)."""
+    engine = "kokoro"
+    note = ""
+
+
+def speak(text: str, voice: str, out: Path, mood: str = "calm") -> List[Dict]:
+    """Narration as an mp3 and the time of every word. With an Azure Speech key the narrator ACTS the scene's mood (scared, sad, excited ...); without one, or if Azure does not answer,
+    the free voice on this computer (Kokoro) is used. The Microsoft read-aloud connection is not used (it is refused and not allowed commercially). Raises RuntimeError when no voice works."""
+    from app.engine import azure_tts, kokoro_tts
+    words, engine, note = None, "kokoro", ""
+    if azure_tts.configured() and (os.environ.get("STORY_VOICE_ENGINE") or "auto").lower() != "kokoro":
+        try:
+            words, engine = azure_tts.synthesize(text, voice, out, mood), "azure"
+        except azure_tts.Unavailable as e:
+            note = f"The emotional voice was not used ({e}) so the free voice was used."
+        except Exception as e:
+            note = f"The emotional voice was not used ({type(e).__name__}) so the free voice was used."
+    if words is None:
+        try:
+            words = kokoro_tts.synthesize(text, voice, out)
+        except kokoro_tts.Unavailable as e:
+            raise RuntimeError(str(e)) from e
+        except Exception as e:
+            raise RuntimeError(f"The narrator voice could not be made ({type(e).__name__}). Try again in a minute.") from e
     if not out.is_file() or out.stat().st_size < 500 or not words:
         raise RuntimeError("The narrator voice came back empty. Try again.")
-    return words
+    w = Words(words)
+    w.engine, w.note = engine, note
+    return w
 
 
 def duration(path: Path) -> float:
@@ -251,7 +272,7 @@ def build_scene(video: Path, narration: Path, words: List[Dict], seconds: float,
     from app.engine.video_processor import escape_ffmpeg_path, safe_name
     dur = max(1.0, float(seconds))
     vdur = duration(video)
-    vf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS}"
+    vf = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={FPS},noise=alls=6:allf=t"      # a little film grain so it does not look like a clean slideshow
     if vdur and vdur < dur:                                       # a 4 or 6 second clip for a longer scene: hold the last picture
         vf += f",tpad=stop_mode=clone:stop_duration={dur - vdur + 0.1:.2f}"
     ass = None

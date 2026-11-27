@@ -2,8 +2,8 @@
 "use strict";
 async function stories() {
   const opt = await api("/api/stories/options");
-  let genre = null, idea = null, script = null, trendData = null, pollT = null;
-  const CAMS = ["slow push in", "slow pull back", "pan left", "pan right", "static with gentle movement", "slow tilt up"];
+  let genre = null, idea = null, script = null, scripts = [], part = 0, trendData = null, pollT = null;
+  const CAMS = ["slow push in", "slow pull back", "pan left", "pan right", "static with gentle movement", "slow tilt up", "handheld", "push in left", "push in right"];
   $("#main").innerHTML = `<h1>Story videos</h1>
     <div class="card stp" id="st1"><h2><span class="no">1</span> What is trending</h2><p class="muted" style="margin:-4px 0 10px">The studio looks at the Shorts that grew fastest this week and ranks the kinds of stories. It only learns what works. Your story is always new.</p><div id="st_trend" class="muted">Loading…</div></div>
     <div class="card stp" id="st2"><h2><span class="no">2</span> Your story</h2>
@@ -11,7 +11,8 @@ async function stories() {
       <label>Or write your own idea (a few words)</label><input id="st_prem" maxlength="500" placeholder="e.g. A night guard finds a door in the museum that was not there yesterday">
       <details style="margin-top:8px"><summary class="muted" style="cursor:pointer">I wrote the whole story myself</summary><textarea id="st_own" rows="6" maxlength="2500" placeholder="Paste your story. Your words are kept exactly; the AI only cuts them into scenes and describes the pictures."></textarea></details>
       <div class="stopts"><div><label>Look of the pictures</label><select id="st_style">${opt.styles.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></div>
-        <div><label>About how long</label><select id="st_len"><option value="30">30 seconds</option><option value="40" selected>40 seconds</option><option value="55">55 seconds</option></select></div></div>
+        <div><label>About how long</label><select id="st_len"><option value="30">30 seconds</option><option value="40" selected>40 seconds</option><option value="55">55 seconds</option></select></div>
+        <div><label>How many parts</label><select id="st_parts"><option value="1" selected>1 video (one part)</option><option value="2">2 parts (Part 1, Part 2)</option><option value="3">3 parts</option><option value="4">4 parts</option><option value="5">5 parts</option></select></div></div>
       <div class="row" style="gap:8px;margin-top:10px"><button class="pri" id="st_write">Write the script</button><span class="muted" id="st_wmsg"></span></div></div>
     <div class="card stp" id="st3" hidden><h2><span class="no">3</span> Check the script</h2><div id="st_script"></div></div>
     <div class="card stp" id="st4" hidden><h2><span class="no">4</span> Make the video</h2><div id="st_make"></div></div>
@@ -39,26 +40,28 @@ async function stories() {
   $("#st_write").onclick = guard(async () => {
     $("#st_write").disabled = true; $("#st_wmsg").textContent = "Writing the script… (about 20 seconds)";
     try {
-      const r = await api("/api/stories/script", {method: "POST", body: {genre, premise: $("#st_prem").value, own_text: $("#st_own").value, seconds: +$("#st_len").value, style: $("#st_style").value}});
-      script = r.script; drawScript(); toast(r.charged ? `Script written (${r.charged} token${r.charged === 1 ? "" : "s"})` : "Script written");
+      const r = await api("/api/stories/script", {method: "POST", body: {genre, premise: $("#st_prem").value, own_text: $("#st_own").value, seconds: +$("#st_len").value, style: $("#st_style").value, parts: $("#st_own").value.trim() ? 1 : +$("#st_parts").value}});
+      scripts = r.scripts || [r.script]; part = 0; script = scripts[0]; drawScript(); toast(r.charged ? `Script written (${r.charged} token${r.charged === 1 ? "" : "s"})` : "Script written");
     } finally { $("#st_write").disabled = false; $("#st_wmsg").textContent = ""; }
   });
   /* ---- 3: the script, editable */
   function drawScript() {
     $("#st3").hidden = false;
-    $("#st_script").innerHTML = `<label>Title</label><input id="sc_title" maxlength="90" value="${esc(script.title)}"><label>Description (for the video)</label><textarea id="sc_desc" rows="2" maxlength="600">${esc(script.description)}</textarea>
+    $("#st_script").innerHTML = `${scripts.length > 1 ? `<div class="stparts">${scripts.map((p, i) => `<button class="${i === part ? "pri" : ""}" data-part="${i}">Part ${i + 1}</button>`).join("")}<span class="muted">One story in ${scripts.length} parts. Each part is its own video and ends so that people want the next one.</span></div>` : ""}<label>Title</label><input id="sc_title" maxlength="90" value="${esc(script.title)}"><label>Description (for the video)</label><textarea id="sc_desc" rows="2" maxlength="600">${esc(script.description)}</textarea>
       ${script.characters.length ? `<h3 style="margin-top:12px">Characters (they look the same in every scene)</h3>${script.characters.map((c, i) => `<div class="row" style="gap:8px"><b style="min-width:90px">${esc(c.name)}</b><input data-ch="${i}" class="grow" maxlength="200" value="${esc(c.look)}"></div>`).join("")}` : ""}
       <h3 style="margin-top:12px">Scenes <span class="muted" id="sc_total"></span></h3>
-      ${script.scenes.map((s, i) => `<div class="scene" data-i="${i}"><div class="row" style="gap:8px;align-items:center"><b>Scene ${s.n}</b><span class="grow"></span><select class="sc_cam">${CAMS.map(c => `<option ${c === s.camera ? "selected" : ""}>${c}</option>`).join("")}</select><button class="dng sc_del" title="Remove this scene">✕</button></div>
+      ${script.scenes.map((s, i) => `<div class="scene" data-i="${i}"><div class="row" style="gap:8px;align-items:center"><b>Scene ${s.n}</b><span class="grow"></span><select class="sc_cam">${CAMS.map(c => `<option ${c === s.camera ? "selected" : ""}>${c}</option>`).join("")}</select><label class="pjchk" style="margin:0" title="Only used when you choose AI video below"><input type="checkbox" class="sc_key" ${s.key ? "checked" : ""}><span>AI video here</span></label><button class="dng sc_del" title="Remove this scene">✕</button></div>
         <label>The narrator says</label><textarea class="sc_nar" rows="2" maxlength="240">${esc(s.narration)}</textarea><label>What we see (who is where and what they do)</label><textarea class="sc_vis" rows="2" maxlength="300">${esc(s.visual)}</textarea></div>`).join("")}
       <div class="stlabel" style="margin-top:10px">${script.realistic ? "This look is realistic. When you post it, YouTube's 'altered or synthetic content' box is ticked for you." : "Every story video is marked as AI-made in the editor."}</div>`;
     $("#st_script").querySelectorAll(".scene").forEach(el => {
       const i = +el.dataset.i;
       el.querySelector(".sc_nar").oninput = e => { script.scenes[i].narration = e.target.value; sync(); };
       el.querySelector(".sc_vis").oninput = e => { script.scenes[i].visual = e.target.value; };
+      el.querySelector(".sc_key").onchange = e => { script.scenes[i].key = e.target.checked; estimate(); };
       el.querySelector(".sc_cam").onchange = e => { script.scenes[i].camera = e.target.value; };
       el.querySelector(".sc_del").onclick = () => { if (script.scenes.length <= 4) return toast("A story needs at least 4 scenes.", true); script.scenes.splice(i, 1); script.scenes.forEach((s, k) => s.n = k + 1); drawScript(); };
     });
+    $("#st_script").querySelectorAll("[data-part]").forEach(b => b.onclick = () => { part = +b.dataset.part; script = scripts[part]; drawScript(); });
     $("#sc_title").oninput = e => { script.title = e.target.value; }; $("#sc_desc").oninput = e => { script.description = e.target.value; };
     $("#st_script").querySelectorAll("[data-ch]").forEach(inp => inp.oninput = e => { script.characters[+inp.dataset.ch].look = e.target.value; });
     sync(); drawMake();
@@ -75,14 +78,15 @@ async function stories() {
     $("#st_make").querySelectorAll("[name=st_prov]").forEach(r => r.onchange = () => { provider = r.value; estimate(); });
     $("#st_go").onclick = guard(async () => {
       $("#st_go").disabled = true;
-      try { const r = await api("/api/stories", {method: "POST", body: {script, provider, finish: $("#st_fin").checked ? "render" : "open", captions: $("#st_cap").checked}}); toast("Your story is in the line"); follow(r.id); }
+      try { const r = await api("/api/stories", {method: "POST", body: {scripts, provider, finish: $("#st_fin").checked ? "render" : "open", captions: $("#st_cap").checked}}); toast(scripts.length > 1 ? `Your ${scripts.length} parts are in the line` : "Your story is in the line"); follow(r.id); }
       finally { $("#st_go").disabled = false; }
     });
     estimate();
   }
   const estimate = guard(async () => {
-    const e = await api("/api/stories/estimate", {method: "POST", body: {script, provider}}); const box = $("#st_est"); if (!box) return;
-    box.innerHTML = e.free ? `${e.scenes} scenes: free for the owner (the usage is still recorded).` : `${e.scenes} scenes: <b>about ${e.tokens} tokens</b> (${e.pictures} pictures${e.video_scenes ? `, ${e.video_scenes} AI video scene${e.video_scenes === 1 ? "" : "s"}` : ""}${e.motion_scenes ? `, ${e.motion_scenes} with camera movement` : ""}). The tokens are held now and what is not used comes back. A failed story costs nothing.`;
+    const e = await api("/api/stories/estimate", {method: "POST", body: {scripts, provider}}); const box = $("#st_est"); if (!box) return;
+    const pn = e.parts > 1 ? ` in ${e.parts} parts` : "";
+    box.innerHTML = e.free ? `${e.scenes} scenes${pn}: free for the owner (the usage is still recorded).` : `${e.scenes} scenes${pn}: <b>about ${e.tokens} tokens</b> (${e.pictures} pictures${e.video_scenes ? `, ${e.video_scenes} AI video scene${e.video_scenes === 1 ? "" : "s"}` : ""}${e.motion_scenes ? `, ${e.motion_scenes} with camera movement` : ""}). The tokens are held now and what is not used comes back. A failed story costs nothing.`;
   });
   /* ---- progress */
   function drawRun(j) {
@@ -97,7 +101,7 @@ async function stories() {
     if ($("#stj_cancel")) $("#stj_cancel").onclick = guard(async () => { await api(`/api/stories/${j.id}/cancel`, {method: "POST"}); poll(j.id); });
   }
   const stopPoll = () => { if (pollT) clearInterval(pollT); pollT = null; };
-  async function poll(id) { try { const j = await api(`/api/stories/${id}`); drawRun(j); if (!["queued", "running"].includes(j.status)) { stopPoll(); drawHist(); } } catch (e) { stopPoll(); } }
+  async function poll(id) { try { const j = await api(`/api/stories/${id}`); drawRun(j); if (!["queued", "running"].includes(j.status)) { stopPoll(); drawHist(); const nx = (await api("/api/stories")).stories.filter(s => ["queued", "running"].includes(s.status) && s.series && j.series && s.series.title === j.series.title).pop(); if (nx) follow(nx.id); } } catch (e) { stopPoll(); } }
   const follow = id => { stopPoll(); poll(id); pollT = setInterval(() => poll(id), 3000); timer = pollT; };
   async function drawHist() {
     const r = await api("/api/stories"); const box = $("#st_hist"); if (!box) return;

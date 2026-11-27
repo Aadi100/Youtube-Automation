@@ -39,20 +39,23 @@ def h_ideas(h):
 @_safe
 def h_script(h):
     d = h.body_json()
-    h.send_json(200, svc.make_script(h.uid, str(d.get("genre") or ""), str(d.get("premise") or ""), str(d.get("own_text") or ""), int(d.get("seconds") or 40), str(d.get("style") or "cartoon3d")))
+    h.send_json(200, svc.make_script(h.uid, str(d.get("genre") or ""), str(d.get("premise") or ""), str(d.get("own_text") or ""), int(d.get("seconds") or 40), str(d.get("style") or "cartoon3d"), int(d.get("parts") or 1)))
 
 
 @_safe
 def h_estimate(h):
     d = h.body_json()
-    s = story_script.clean(d.get("script") or {})
-    h.send_json(200, svc.estimate(s, str(d.get("provider") or "motion"), h.is_owner()))
+    scripts = d.get("scripts") if isinstance(d.get("scripts"), list) and d.get("scripts") else [d.get("script") or {}]
+    es = [svc.estimate(story_script.clean(x), str(d.get("provider") or "motion"), h.is_owner()) for x in scripts[:story_script.MAX_PARTS]]
+    h.send_json(200, {**es[0], "parts": len(es), **{k: sum(e[k] for e in es) for k in ("scenes", "pictures", "video_scenes", "motion_scenes", "tokens")}})
 
 
 @_safe
 def h_start(h):
     d = h.body_json()
-    h.send_json(202, svc.start(h.uid, d.get("script") or {}, str(d.get("provider") or "motion"), str(d.get("voice") or ""), str(d.get("finish") or "open"), bool(d.get("captions", True))))
+    scripts = d.get("scripts") if isinstance(d.get("scripts"), list) and d.get("scripts") else [d.get("script") or {}]
+    jobs = svc.start_series(h.uid, scripts, str(d.get("provider") or "motion"), str(d.get("voice") or ""), str(d.get("finish") or "open"), bool(d.get("captions", True)))["jobs"]
+    h.send_json(202, {**jobs[0], "jobs": jobs})
 
 
 def h_list(h):

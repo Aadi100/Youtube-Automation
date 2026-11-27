@@ -15,7 +15,7 @@ SERVICES = {
     ("llm", "gemini"): ("Gemini (AI text and safety review)", "AI tokens"), ("llm", "deepseek"): ("DeepSeek (AI text)", "AI tokens"),
     ("llm", "claude"): ("Claude (thumbnails and research)", "AI tokens"), ("web_search", "claude"): ("Claude web searches (research)", "searches"),
     ("image", "gemini"): ("Images (Gemini)", "images"), ("image", "free"): ("Images (free service)", "images"), ("image", "flux"): ("Images (Best thumbnail, FLUX)", "images"),
-    ("tts", "edge-tts"): ("Narrator voice", "characters"), ("tts", "kokoro"): ("Narrator voice (free, on the server)", "characters"), ("whisper", "whisper"): ("Captions (speech to text)", "minutes"),
+    ("tts", "edge-tts"): ("Narrator voice", "characters"), ("tts", "kokoro"): ("Narrator voice (free, on the server)", "characters"), ("tts", "azure"): ("Narrator voice (Azure, with emotion)", "characters"), ("whisper", "whisper"): ("Captions (speech to text)", "minutes"),
     ("safety_local", "nudenet"): ("Local safety check", "clips"), ("upload", "youtube"): ("Uploads to YouTube", "uploads"),
     ("search", ""): ("Finding the clip", "clips"), ("search", "studio"): ("Finding the clip", "clips"),
     ("render", "short"): ("Rendering a Short", "videos"), ("render", "compilation"): ("Rendering a compilation", "videos"),
