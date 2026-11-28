@@ -1,4 +1,4 @@
 /* Which function draws which page, and the start of the dashboard. This file loads LAST, after every page file. */
 "use strict";
 /* ------------------------------------------------------------ router */
-const routes = {overview, games, create, videos, editor, research, reactions, lab, notifications, profile, twitch: social, clips, social, projects, stories, permissions, schedule, settings, users, reports, usage, progress: overview};
+const routes = {overview, games, create, videos, editor, research, reactions, lab, notifications, profile, twitch: social, clips, social, projects, stories, permissions, schedule, settings, users, reports, usage, aiusage, progress: overview};

@@ -86,9 +86,9 @@ def order_for(task: str) -> List[str]:
     return [p for p in base if (p != "deepseek" or deepseek_ready()) and (p != "claude" or claude_util.ready())]
 
 
-def _record(kind: str, provider: str, task: str, tin: int, tout: int) -> None:
+def _record(kind: str, provider: str, task: str, tin: int, tout: int, estimated: bool = False) -> None:
     from app.models import UsageEvent
-    UsageEvent.record(kind, provider=provider, task=task, tokens_in=tin, tokens_out=tout)
+    UsageEvent.record(kind, provider=provider, task=task, tokens_in=tin, tokens_out=tout, estimated=estimated)
     ai_saver.spend(tin + tout)
 
 
@@ -126,12 +126,18 @@ def generate(task: str, prompt: str, json_mode: bool = False, timeout: int = 60)
                 gemini_util._last.usage = (0, 0)
                 text = gemini_util.generate(prompt, timeout=timeout, json_mode=json_mode, model=chosen)
                 tin, tout = gemini_util.last_usage()
-            if not (tin or tout):     # the service did not say: estimate from the size of the text (about 4 characters per token)
+            guessed = not (tin or tout)
+            if guessed:               # the service did not say: estimate from the size of the text (about 4 characters per token)
                 tin, tout = len(prompt) // 4, len(text) // 4
-            _record("llm", p, task, tin, tout)
+            _record("llm", p, task, tin, tout, guessed)
             _log(f"{task}: answered by {p}")
             return text
         except Exception as e:
+            try:
+                from app.models import AiCall
+                AiCall.log(p, "text", task, ok=False, error=str(e)[:120])
+            except Exception:
+                pass
             errors.append(f"{p}{' ' + chosen if chosen else ''}: {str(e)[:90]}")
             _log(f"{task}: {p}{' ' + chosen if chosen else ''} unavailable ({str(e)[:80]})")
     raise RuntimeError("; ".join(errors) or "no AI provider configured for this job")

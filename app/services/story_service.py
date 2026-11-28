@@ -21,7 +21,7 @@ from typing import Dict, List, Optional
 
 from app.config import BASE_DIR
 from app.engine import edit_project as ep, editor, story_media as SM, story_script as SS, story_trends as ST
-from app.models import EditSource, StoryJob, System, UsageEvent, User, now, oid
+from app.models import AiCall, EditSource, StoryJob, System, UsageEvent, User, now, oid
 from app.runtime import WORKER_ID
 from app.services import token_service as tokens
 
@@ -398,6 +398,14 @@ def recover_stale(mine_only: bool = False) -> int:
 
 
 def run(d: Dict) -> None:
+    AiCall.set_who(str(d["user_id"]), str(d["_id"]))               # every AI call made for this story is written under this member and story
+    try:
+        _run_story(d)
+    finally:
+        AiCall.set_who(None)
+
+
+def _run_story(d: Dict) -> None:
     sid, uid = str(d["_id"]), str(d["user_id"])
     script, provider, voice = d["script"], d.get("provider") or "motion", d.get("voice") or SM.voice_for(d["script"].get("genre"))
     work = _dir(uid, sid)
@@ -428,12 +436,14 @@ def run(d: Dict) -> None:
             if not why:
                 counts["pictures"] += 1
                 events.append({"kind": "image", "provider": "flux", "task": "story", "units": 1})
+                AiCall.log("flux", "image", "story-picture", units=1, unit="images")
             st["note"] = why
             save(base + 25 / n_total, f"Scene {i + 1} of {n_total}: recording the narrator…")
             mp3 = work / f"nar_{sc['n']:02d}.mp3"
             words = SM.speak(sc["narration"], voice, mp3, mood=sc.get("mood") or "calm")
             seconds = max(float(sc["seconds"]), SM.duration(mp3) + 0.5)
             events.append({"kind": "tts", "provider": getattr(words, "engine", "kokoro"), "task": "story", "units": len(sc["narration"])})
+            AiCall.log(getattr(words, "engine", "kokoro"), "voice", "story-narration", units=len(sc["narration"]), unit="characters")
             if getattr(words, "note", ""):
                 st["note"] = ((st.get("note") or "") + " " + words.note).strip()
             clip = work / f"clip_{sc['n']:02d}.mp4"
@@ -552,9 +562,11 @@ def redo_scene(uid, sid: str, n: int) -> Dict:
     if pic is None or why:
         new.unlink(missing_ok=True)
         raise ValueError(f"The picture could not be made again. {why or ''} Nothing was charged.".replace("  ", " "))
+    AiCall.log("flux", "image", "story-picture", units=1, unit="images", user_id=str(uid), ref=sid)
     mp3, clip, tmp = work / f"nar_{n:02d}.mp3", work / f"clip_{n:02d}.mp4", work / f"scene_{n:02d}_new.mp4"
     try:
         words = SM.speak(sc["narration"], d.get("voice") or SM.voice_for(d["script"].get("genre")), mp3, mood=sc.get("mood") or "calm")
+        AiCall.log(getattr(words, "engine", "kokoro"), "voice", "story-narration", units=len(sc["narration"]), unit="characters", user_id=str(uid), ref=sid)
         seconds = max(float(st.get("seconds") or sc["seconds"]), SM.duration(mp3) + 0.5)
         if video:
             ok, vwhy = SM.veo_animate(new, f"{sc['visual']}. Camera: {sc['camera']}. Smooth, natural movement of the characters. No text, no logos, no speech.", seconds, clip, wait=420)

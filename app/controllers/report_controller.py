@@ -9,6 +9,20 @@ def h_report(h):
     h.send_json(200, report_service.build_report(int(h.q.get("days") or 7)))
 
 
+def h_ai_usage(h):
+    h.send_json(200, report_service.ai_usage(int(h.q.get("days") or 7), str(h.q.get("user") or "")))
+
+
+def h_ai_usage_csv(h):
+    body = report_service.ai_usage_csv(int(h.q.get("days") or 30), str(h.q.get("user") or "")).encode("utf-8-sig")
+    h.send_response(200)
+    h.send_header("Content-Type", "text/csv; charset=utf-8")
+    h.send_header("Content-Disposition", 'attachment; filename="clip-studio-ai-usage.csv"')
+    h.send_header("Cache-Control", "no-store")
+    h.end_headers()
+    h.wfile.write(body)
+
+
 def h_story_report(h):
     h.send_json(200, report_service.story_report(int(h.q.get("days") or 30)))
 
@@ -75,12 +89,14 @@ ROUTES = [
     (r"/api/admin/price/save", "PUT", h_price_save),
     (r"/api/admin/report", "GET", h_report),
     (r"/api/admin/story-report", "GET", h_story_report),
+    (r"/api/admin/ai-usage", "GET", h_ai_usage),
+    (r"/api/admin/ai-usage.csv", "GET", h_ai_usage_csv),
     (r"/api/admin/report.csv", "GET", h_report_csv),
     (r"/api/admin/ai-savings", "GET", h_ai_savings),
     (r"/api/admin/costs", "PUT", h_costs_put),
     (r"/api/me/report", "GET", h_my_report),
     (r"/api/me/report.csv", "GET", h_my_report_csv),
 ]
-OWNER_ONLY.update({h_story_report, h_report, h_report_csv, h_costs_put, h_ai_savings, h_price_overview, h_price_suggest, h_price_save})
+OWNER_ONLY.update({h_ai_usage, h_ai_usage_csv, h_story_report, h_report, h_report_csv, h_costs_put, h_ai_savings, h_price_overview, h_price_suggest, h_price_save})
 bp = Blueprint("report", __name__)
 register(bp, ROUTES)

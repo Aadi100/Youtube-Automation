@@ -197,6 +197,10 @@ def ask_with_search(task: str, system: str, user_text: str, max_searches: int = 
         UsageEvent(user_id=os.environ.get("CLIPSTUDIO_USER_ID") or None, video_id="research", kind="llm", provider="claude", task=task, tokens_in=tin, tokens_out=tout, ok=True).save()
         if searches:
             UsageEvent(user_id=os.environ.get("CLIPSTUDIO_USER_ID") or None, video_id="research", kind="web_search", provider="claude", task=task, units=float(searches), ok=True).save()
+        from app.models import AiCall
+        AiCall.log("claude", "text", task, tin, tout)
+        if searches:
+            AiCall.log("claude", "search", task, units=float(searches), unit="searches")
     except Exception:
         pass
     text = chr(10).join(t for t in texts if t).strip()

@@ -5,7 +5,7 @@ async function settings() {
   const isOwner = ME.role === "owner";
   const SECTIONS = [
     {id: "prefs", icon: "user", title: "My preferences",
-     desc: "Your narrator, how the original audio is handled, where your approval emails go, and your password."},
+     desc: "Your narrator voice, what happens to the creator's own audio, what happens after a video is made, and your thumbnail look."},
     {id: "yt", icon: "videos", title: "YouTube",
      desc: "Connect your own YouTube channel. The studio then uploads your videos there for you, using your own channel's permission."},
     {id: "conn", icon: "key", title: "Accounts & keys",
@@ -609,24 +609,30 @@ async function settings() {
     const b = to.brand;
     const sel = (id, label, opts, cur, help) => `<div><label>${label}</label><select id="${id}">${opts.map(([o, t]) => `<option value="${esc(o)}" ${cur === o ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>${help ? `<div class="help">${help}</div>` : ""}</div>`;
     box.className = "";
-    box.innerHTML = `<div class="fields">
-        ${sel("pf_voice", "Narrator voice", [["", "Use the server default"]].concat(VOICE_OPTS), p.tts_voice || "", "Who reads your AI commentary. You can also choose one per video on the Create page.")}
-        ${sel("pf_audio", "Original audio", [["", "Use the server default"]].concat(AUDIO_OPTS), p.default_audio || "", "What happens to the creator's original audio.")}
-        ${sel("pf_hold", "After a video is made", [["0", "Upload it automatically as Unlisted"], ["1", "Wait for me: I check it and choose the audio first"]], p.hold_uploads ? "1" : "0", "With 'Wait for me' nothing goes to YouTube until you press Upload on the video. You can still change a single run on the Create page.")}
-        <div class="full"><h3 style="margin:14px 0 2px">My thumbnail look</h3><div class="help">New videos use this automatically, so your channel has its own look. You can still change any single video in its Thumbnail studio.</div></div>
-        ${sel("pf_tstyle", "Style", [["auto", "Vary automatically (never the same as your last two)"]].concat(to.styles.map(x => [x.id, x.name])), b.style, "")}
-        ${sel("pf_tfont", "Font", to.fonts.map(f => [f.id, f.name]), b.font, "")}
-        ${sel("pf_ttier", "Thumbnail level", (to.tiers || [{id: "better", name: "Better", available: true, price: 1}]).filter(x => x.available || x.id === b.tier).map(x => [x.id, `${x.name}: about ${x.price} token${x.price === 1 ? "" : "s"} a picture`]), b.tier || "better", (to.tiers || []).filter(x => !x.available).map(x => `${x.name}: ${x.reason}`).join(" · "))}
-        ${sel("pf_tface", "Streamer's face on the thumbnail", [["on", "Use it when the video has a webcam"], ["off", "Never"]], b.face || "on", "Only when the video has a face camera: the sharpest, most expressive moment of the face is cut out and put in a corner. No webcam, no face: nothing changes.")}
-        ${sel("pf_tpics", "AI pictures for each new thumbnail", [["1", "1 picture"], ["3", "3 pictures to choose from (3 times the picture cost)"]], String(b.pictures || 1), "With 3, the other two are kept for you to pick from in the Thumbnail studio. You can still choose for each video on the Create page.")}
-        <div><label>Text colour</label><input type="color" id="pf_tcol" value="${b.text}" style="width:70px;height:36px;padding:0"></div>
-        <div><label>Accent colour</label><input type="color" id="pf_acol" value="${b.accent}" style="width:70px;height:36px;padding:0"></div>
-        <div class="full"><label>My logo (top right of every thumbnail)</label><div class="row">${b.has_logo ? `<img src="/api/brand/logo?t=${Date.now()}" alt="Logo" style="height:42px;background:#888;border-radius:8px;padding:4px">` : '<span class="muted">No logo yet</span>'}
-          <button type="button" id="pf_logo">${b.has_logo ? "Change logo" : "Upload a logo"}</button>${b.has_logo ? '<button type="button" class="dng" id="pf_logo_rm">Remove</button>' : ""}<input type="file" id="pf_logof" accept="image/png,image/jpeg" hidden></div><div class="help">A PNG with a transparent background looks best.</div></div>
-        </div>
-      <div class="row" style="margin-top:8px"><button type="button" id="pf_listen">▶ Listen to the chosen voice</button></div>
-      <div class="savebar"><button class="pri" id="pf_save">Save</button><span class="muted">Used for your next video.</span></div>
-      <p class="help" style="margin-top:22px">Password, signed-in devices, notifications and your YouTube channel are in <a href="#/profile/security">My profile</a>.</p>`;
+    const options = (list, cur) => list.map(([o, t]) => `<option value="${esc(o)}" ${cur === o ? "selected" : ""}>${esc(t)}</option>`).join("");
+    box.innerHTML = `
+      <section class="pfsec"><div class="pfhead"><h3>Voice and audio</h3><p>Who reads your AI commentary, and what happens to the creator's own sound.</p></div>
+        <div class="pfgrid">
+          <div><label>Narrator voice</label><div class="pfrow"><select id="pf_voice">${options([["", "Use the server default"]].concat(VOICE_OPTS), p.tts_voice || "")}</select><button type="button" id="pf_listen" title="Hear the chosen voice">▶ Listen</button></div>
+            <div class="help">You can also choose one for a single video on the Create page.</div></div>
+          <div class="full">${sel("pf_audio", "Original audio", [["", "Use the server default"]].concat(AUDIO_OPTS), p.default_audio || "", "What happens to the creator's own audio.")}</div>
+        </div></section>
+      <section class="pfsec"><div class="pfhead"><h3>After a video is made</h3><p>Should it go to YouTube by itself, or wait for you?</p></div>
+        <div class="pfgrid">${sel("pf_hold", "What happens next", [["0", "Upload it automatically as Unlisted"], ["1", "Wait for me: I check it and choose the audio first"]], p.hold_uploads ? "1" : "0", "With 'Wait for me' nothing goes to YouTube until you press Upload on the video. You can still change a single run on the Create page.")}</div></section>
+      <section class="pfsec"><div class="pfhead"><h3>My thumbnail look</h3><p>New videos use this automatically, so your channel has its own look. You can still change any single video in its Thumbnail studio.</p></div>
+        <div class="pfgrid">
+          ${sel("pf_tstyle", "Style", [["auto", "Vary automatically (never the same as your last two)"]].concat(to.styles.map(x => [x.id, x.name])), b.style, "")}
+          ${sel("pf_tfont", "Font", to.fonts.map(f => [f.id, f.name]), b.font, "")}
+          ${sel("pf_ttier", "Thumbnail level", (to.tiers || [{id: "better", name: "Better", available: true, price: 1}]).filter(x => x.available || x.id === b.tier).map(x => [x.id, `${x.name}: about ${x.price} token${x.price === 1 ? "" : "s"} a picture`]), b.tier || "better", (to.tiers || []).filter(x => !x.available).map(x => `${x.name}: ${x.reason}`).join(" · "))}
+          ${sel("pf_tface", "Streamer's face on the thumbnail", [["on", "Use it when the video has a webcam"], ["off", "Never"]], b.face || "on", "Only when the video has a face camera: the sharpest, most expressive moment of the face is cut out and put in a corner. No webcam, no face: nothing changes.")}
+          ${sel("pf_tpics", "AI pictures for each new thumbnail", [["1", "1 picture"], ["3", "3 pictures to choose from (3 times the picture cost)"]], String(b.pictures || 1), "With 3, the other two are kept for you to pick from in the Thumbnail studio. You can still choose for each video on the Create page.")}
+          <div><label>Colours</label><div class="pfrow"><label class="pfc"><input type="color" id="pf_tcol" value="${b.text}"><span>Text</span></label><label class="pfc"><input type="color" id="pf_acol" value="${b.accent}"><span>Accent</span></label></div></div>
+          <div class="full"><label>My logo (top right of every thumbnail)</label><div class="pfrow">${b.has_logo ? `<img src="/api/brand/logo?t=${Date.now()}" alt="Logo" class="pflogo">` : '<span class="muted">No logo yet</span>'}
+            <button type="button" id="pf_logo">${b.has_logo ? "Change logo" : "Upload a logo"}</button>${b.has_logo ? '<button type="button" class="dng" id="pf_logo_rm">Remove</button>' : ""}<input type="file" id="pf_logof" accept="image/png,image/jpeg" hidden></div>
+            <div class="help">A PNG with a transparent background looks best.</div></div>
+        </div></section>
+      <div class="pfsave"><button class="pri" id="pf_save">Save my preferences</button><span class="muted">Used for your next video.</span></div>
+      <p class="help" style="margin-top:14px">Password, signed-in devices, notifications and your YouTube channel are in <a href="#/profile/security">My profile</a>.</p>`;
     $("#pf_listen").onclick = () => { const v = $("#pf_voice").value; if (!v || v === "random") { toast("Pick one voice to listen to it"); return; } new Audio("/api/voices/preview?voice=" + encodeURIComponent(v)).play().catch(() => toast("Could not play the sample", true)); };
     $("#pf_save").onclick = guard(async () => {
       const r = await api("/api/prefs", {method: "PUT", body: {tts_voice: $("#pf_voice").value, default_audio: $("#pf_audio").value, hold_uploads: $("#pf_hold").value === "1"}});

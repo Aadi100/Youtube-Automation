@@ -8,7 +8,7 @@ import io
 from datetime import timedelta
 from typing import Dict, List
 
-from app.models import Job, StoryJob, TokenLedger, UsageEvent, User, Video, now, oid
+from app.models import AiCall, Job, StoryJob, TokenLedger, UsageEvent, User, Video, now, oid
 from app.services import token_service as tk
 
 SERVICES = {
@@ -258,6 +258,69 @@ def build_member_csv(uid: str, days: int) -> str:
 
 
 KIND_LABEL = {"lowres": "Pictures read at low resolution", "cache": "Answers reused (the same question was never paid for twice)", "budget": "Stopped by a video's token budget", "local": "Done by code instead of AI"}
+
+
+AI_NAMES = {("text", "deepseek"): "DeepSeek (text)", ("text", "gemini"): "Gemini (text and picture review)", ("text", "claude"): "Claude (text and research)",
+            ("image", "flux"): "FLUX pictures (Cloudflare)", ("image", "gemini"): "Gemini pictures", ("image", "free"): "Free picture service",
+            ("voice", "azure"): "Azure voice (with feelings)", ("voice", "kokoro"): "Kokoro voice (free, on the server)", ("voice", "edge-tts"): "Microsoft read-aloud voice (Shorts only)",
+            ("captions", "whisper"): "Whisper captions (on the server)", ("video", "veo"): "Veo AI video", ("search", "claude"): "Claude web search", ("safety", "nudenet"): "Local safety check (on the server)"}
+AI_GROUPS = [("Text AI", "text"), ("Pictures", "image"), ("Voice", "voice"), ("AI video", "video"), ("Captions", "captions"), ("Web search", "search"), ("Safety check", "safety")]
+
+
+def ai_usage(days: int = 7, user_id: str = "", recent: int = 60) -> Dict:
+    """What the AI services really did for the studio, in each service's own numbers (tokens in and out, pictures, characters, seconds): not studio tokens, not dollars."""
+    days = min(400, max(1, int(days)))
+    since = now() - timedelta(days=days)
+    q = {"t__gte": since}
+    if user_id:
+        q["user_id"] = str(user_id)
+    cond = lambda f: {"$cond": ["$ok", f, 0]}
+    totals: Dict[tuple, Dict] = {}
+    for r in AiCall.objects(**q).aggregate([{"$group": {"_id": {"k": "$kind", "s": "$service"}, "calls": {"$sum": 1}, "failed": {"$sum": {"$cond": ["$ok", 0, 1]}}, "estimated": {"$sum": {"$cond": ["$estimated", 1, 0]}},
+                                                       "tin": {"$sum": "$tokens_in"}, "tout": {"$sum": "$tokens_out"}, "units": {"$sum": cond("$units")}, "failed_units": {"$sum": {"$cond": ["$ok", 0, "$units"]}}}}]):
+        g = r["_id"]
+        totals[(g["k"], g["s"])] = {"kind": g["k"], "service": g["s"], "name": AI_NAMES.get((g["k"], g["s"]), f"{g['s']} ({g['k']})"), "calls": r["calls"], "failed": r["failed"], "estimated": r["estimated"],
+                                     "tokens_in": r["tin"], "tokens_out": r["tout"], "units": round(r["units"], 1), "failed_units": round(r["failed_units"], 1)}
+    for v in totals.values():
+        ok = max(1, v["calls"] - v["failed"])
+        v["avg_in"], v["avg_out"] = round(v["tokens_in"] / ok), round(v["tokens_out"] / ok)
+    per_day: Dict[str, Dict[str, Dict]] = {}
+    for r in AiCall.objects(**q).aggregate([{"$group": {"_id": {"d": {"$dateToString": {"format": "%Y-%m-%d", "date": "$t"}}, "k": "$kind", "s": "$service"}, "calls": {"$sum": 1},
+                                                       "tin": {"$sum": "$tokens_in"}, "tout": {"$sum": "$tokens_out"}, "units": {"$sum": cond("$units")}}}]):
+        g = r["_id"]
+        per_day.setdefault(f"{g['k']}:{g['s']}", {})[g["d"]] = {"calls": r["calls"], "tokens_in": r["tin"], "tokens_out": r["tout"], "units": round(r["units"], 1)}
+    by_task = [{"kind": r["_id"]["k"], "service": r["_id"]["s"], "task": r["_id"]["t"] or "(not named)", "calls": r["calls"], "failed": r["failed"], "tokens_in": r["tin"], "tokens_out": r["tout"], "units": round(r["units"], 1)}
+               for r in AiCall.objects(**q).aggregate([{"$group": {"_id": {"k": "$kind", "s": "$service", "t": "$task"}, "calls": {"$sum": 1}, "failed": {"$sum": {"$cond": ["$ok", 0, 1]}},
+                                                                   "tin": {"$sum": "$tokens_in"}, "tout": {"$sum": "$tokens_out"}, "units": {"$sum": cond("$units")}}}, {"$sort": {"calls": -1}}, {"$limit": 80}])]
+    mem: Dict[str, Dict] = {}
+    for r in AiCall.objects(**q).aggregate([{"$group": {"_id": {"u": "$user_id", "k": "$kind"}, "calls": {"$sum": 1}, "tin": {"$sum": "$tokens_in"}, "tout": {"$sum": "$tokens_out"}, "units": {"$sum": cond("$units")}}}]):
+        g = r["_id"]
+        m = mem.setdefault(g["u"] or "", {"calls": 0, "tokens_in": 0, "tokens_out": 0, "images": 0, "voice_characters": 0, "video_seconds": 0, "caption_seconds": 0, "searches": 0})
+        m["calls"] += r["calls"]; m["tokens_in"] += r["tin"]; m["tokens_out"] += r["tout"]
+        if g["k"] == "image": m["images"] += int(r["units"])
+        elif g["k"] == "voice": m["voice_characters"] += int(r["units"])
+        elif g["k"] == "video": m["video_seconds"] += int(r["units"])
+        elif g["k"] == "captions": m["caption_seconds"] += int(r["units"])
+        elif g["k"] == "search": m["searches"] += int(r["units"])
+    last = list(AiCall.objects(**q).order_by("-t").limit(max(1, min(200, int(recent)))))
+    users = {str(u["_id"]): u for u in User.find_all(id__in=[oid(x) for x in {*mem, *[c.user_id for c in last]} if x])}
+    return {"days": days, "since": since.isoformat(), "groups": [{"title": t, "kind": k, "rows": sorted([v for (kk, _s), v in totals.items() if kk == k], key=lambda x: -x["calls"])} for t, k in AI_GROUPS],
+            "per_day": per_day, "by_task": by_task,
+            "by_member": sorted([{**_name(users, u), "user_id": u, **v} for u, v in mem.items()], key=lambda x: -x["calls"]),
+            "recent": [{"t": c.t.isoformat(), "kind": c.kind, "service": c.service, "name": AI_NAMES.get((c.kind, c.service), c.service), "task": c.task or "", "tokens_in": c.tokens_in, "tokens_out": c.tokens_out,
+                        "estimated": bool(c.estimated), "units": c.units, "unit": c.unit or "", "ok": bool(c.ok), "error": c.error or "", "member": _name(users, c.user_id or "")["name"], "ref": c.ref or ""} for c in last],
+            "users": sorted([{"id": k, "name": v.get("name") or v.get("email", "")} for k, v in users.items()], key=lambda x: x["name"].lower())}
+
+
+def ai_usage_csv(days: int = 30, user_id: str = "") -> str:
+    d = ai_usage(days, user_id, 1)
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["Service", "Calls", "Failed", "Input tokens", "Output tokens", "Counted by size (not reported)", "Units (pictures / characters / seconds / searches / clips)"])
+    for g in d["groups"]:
+        for r in g["rows"]:
+            w.writerow([r["name"], r["calls"], r["failed"], r["tokens_in"], r["tokens_out"], r["estimated"], r["units"]])
+    return out.getvalue()
 
 
 def story_report(days: int = 30) -> Dict:

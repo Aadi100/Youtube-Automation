@@ -1,5 +1,6 @@
 """Token ledger (every change of a balance) and the usage records every video's bill is built from."""
 import os
+import threading
 
 from mongoengine import BooleanField, DateTimeField, FloatField, IntField, StringField
 
@@ -36,9 +37,10 @@ class UsageEvent(Doc):
 
     @classmethod
     def record(cls, kind: str, provider: str = "", task: str = "", units: float = 0, tokens_in: int = 0, tokens_out: int = 0,
-               ok: bool = True, video_id: str = None, job_id: str = None, user_id: str = None) -> None:
+               ok: bool = True, video_id: str = None, job_id: str = None, user_id: str = None, estimated: bool = False) -> None:
         """Called from the pipeline process (it knows its job and member from the environment). Never raises: a missing
         record must not break a video."""
+        AiCall.from_usage(kind, provider, task, units, tokens_in, tokens_out, ok, user_id, video_id or job_id, estimated)      # the owner's AI usage page counts every call, with or without a video
         try:
             job_id = job_id or os.environ.get("CLIPSTUDIO_JOB_ID") or None
             user_id = user_id or os.environ.get("CLIPSTUDIO_USER_ID") or None
@@ -48,6 +50,57 @@ class UsageEvent(Doc):
                 tokens_in=int(tokens_in or 0), tokens_out=int(tokens_out or 0), ok=bool(ok), t=now()).save(force_insert=True)
         except Exception:
             pass
+
+
+_WHO = threading.local()
+# what a usage record of this kind is, in the words of the AI usage page: (kind shown, the unit of `units`)
+_AI_KINDS = {"llm": ("text", "tokens"), "image": ("image", "images"), "tts": ("voice", "characters"), "whisper": ("captions", "seconds"),
+             "safety_local": ("safety", "clips"), "web_search": ("search", "searches")}
+
+
+class AiCall(Doc):
+    """One real call to an AI service (text, picture, voice, captions, video, web search), written when the call is made, for whoever asked.
+    The numbers are what the service itself reported (tokens in and out); `estimated` is true when it did not report them and the studio counted by size.
+    This is the owner's AI usage page. It is separate from the bill (UsageEvent), which only exists while a video is being made."""
+    t = DateTimeField()
+    service = StringField()                       # deepseek | gemini | claude | flux | free | azure | kokoro | edge-tts | whisper | veo | nudenet
+    kind = StringField()                          # text | image | voice | captions | video | search | safety
+    task = StringField()                          # commentary | metadata | thumbnail | story-picture | story-script ...
+    tokens_in = IntField(default=0)               # text AI: input tokens as the service reported them
+    tokens_out = IntField(default=0)
+    estimated = BooleanField(default=False)
+    units = FloatField(default=0)                 # images: count, voice: characters, captions / video: seconds, search: searches, safety: clips
+    unit = StringField()
+    ok = BooleanField(default=True)
+    error = StringField()
+    user_id = StringField()
+    ref = StringField()                           # the job, video or story it belonged to
+    meta = {"collection": "ai_calls", "indexes": [("service", "-t"), ("user_id", "-t"), {"fields": ["t"], "expireAfterSeconds": 400 * 86400}]}
+
+    @staticmethod
+    def set_who(user_id=None, ref=None) -> None:
+        """Who is asking, for the calls made on this thread (a web request, a story being made)."""
+        _WHO.user, _WHO.ref = user_id, ref
+
+    @classmethod
+    def log(cls, service: str, kind: str, task: str = "", tokens_in: int = 0, tokens_out: int = 0, units: float = 0, unit: str = "", ok: bool = True,
+            error: str = "", estimated: bool = False, user_id: str = None, ref: str = None) -> None:
+        """Never raises: a missing row must not break a video."""
+        try:
+            cls(t=now(), service=service or "", kind=kind, task=task or "", tokens_in=int(tokens_in or 0), tokens_out=int(tokens_out or 0), estimated=bool(estimated),
+                units=float(units or 0), unit=unit, ok=bool(ok), error=str(error or "")[:160],
+                user_id=user_id or getattr(_WHO, "user", None) or os.environ.get("CLIPSTUDIO_USER_ID") or None,
+                ref=ref or getattr(_WHO, "ref", None) or os.environ.get("CLIPSTUDIO_JOB_ID") or None).save(force_insert=True)
+        except Exception:
+            pass
+
+    @classmethod
+    def from_usage(cls, kind: str, provider: str, task: str, units: float, tokens_in: int, tokens_out: int, ok: bool, user_id=None, ref=None, estimated: bool = False) -> None:
+        """The same thing seen from a bill record: only the kinds that are an AI service are written (not scans, uploads, e-mails ...)."""
+        k = _AI_KINDS.get(kind)
+        if not k:
+            return
+        cls.log(provider, k[0], task, tokens_in, tokens_out, 0 if kind == "llm" else units, "" if kind == "llm" else k[1], ok, "", estimated, user_id, ref)
 
 
 class AiCache(Doc):

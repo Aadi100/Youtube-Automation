@@ -185,7 +185,18 @@ def _view(**kw):
             h.uid = str(h.user["_id"])
         if fn in OWNER_ONLY and not h.is_owner():
             return _json(403, {"error": "only the owner can do this"})
-    fn(h, *[kw[f"g{i}"] for i in range(len(kw))])
+    try:
+        from app.models import AiCall
+        AiCall.set_who(getattr(h, "uid", None))
+    except Exception:
+        pass
+    try:
+        fn(h, *[kw[f"g{i}"] for i in range(len(kw))])
+    finally:
+        try:
+            AiCall.set_who(None)
+        except Exception:
+            pass
     return h.finish()
 
 

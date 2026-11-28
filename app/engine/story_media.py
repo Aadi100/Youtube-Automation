@@ -140,6 +140,15 @@ def veo_seconds(seconds: float) -> int:
 
 
 def veo_animate(image: Path, prompt: str, seconds: float, out: Path, model: Optional[str] = None, key: Optional[str] = None, wait: int = VEO_WAIT) -> Tuple[bool, str]:
+    """Turn the picture into a moving clip with Veo, and write the call down for the owner's AI usage page (seconds asked for; failures too)."""
+    ok, why = _veo_animate(image, prompt, seconds, out, model, key, wait)
+    if (key or veo_key()) and (model or veo_model()):
+        from app.models import AiCall
+        AiCall.log("veo", "video", "story-scene", units=veo_seconds(seconds), unit="seconds", ok=ok, error="" if ok else why)
+    return ok, why
+
+
+def _veo_animate(image: Path, prompt: str, seconds: float, out: Path, model: Optional[str] = None, key: Optional[str] = None, wait: int = VEO_WAIT) -> Tuple[bool, str]:
     """Turn the picture into a moving clip with Veo. Returns (True, "") or (False, the reason in plain words). The clip is saved without relying on Veo's own sound."""
     key, model = key or veo_key(), model or veo_model()
     if not key:
@@ -237,6 +246,14 @@ class Words(list):
     note = ""
 
 
+def _voice_failed(service: str, why: str) -> None:
+    try:
+        from app.models import AiCall
+        AiCall.log(service, "voice", "story-narration", ok=False, error=why)
+    except Exception:
+        pass
+
+
 def speak(text: str, voice: str, out: Path, mood: str = "calm") -> List[Dict]:
     """Narration as an mp3 and the time of every word. With an Azure Speech key the narrator ACTS the scene's mood (scared, sad, excited ...); without one, or if Azure does not answer,
     the free voice on this computer (Kokoro) is used. The Microsoft read-aloud connection is not used (it is refused and not allowed commercially). Raises RuntimeError when no voice works."""
@@ -247,8 +264,10 @@ def speak(text: str, voice: str, out: Path, mood: str = "calm") -> List[Dict]:
             words, engine = azure_tts.synthesize(text, voice, out, mood), "azure"
         except azure_tts.Unavailable as e:
             note = f"The emotional voice was not used ({e}) so the free voice was used."
+            _voice_failed("azure", str(e))
         except Exception as e:
             note = f"The emotional voice was not used ({type(e).__name__}) so the free voice was used."
+            _voice_failed("azure", type(e).__name__)
     if words is None:
         try:
             words = kokoro_tts.synthesize(text, voice, out)

@@ -349,6 +349,15 @@ def _note(ok: bool, why: str = "") -> None:
         pass
 
 
+def _failed(why: str) -> None:
+    """A FLUX call that did not give a picture (a refusal, a busy service ...). The ones that did are written by whoever used the picture."""
+    try:
+        from app.models import AiCall
+        AiCall.log("flux", "image", "picture", units=1, unit="images", ok=False, error=why)
+    except Exception:
+        pass
+
+
 def _request(prompt: str) -> Tuple[Optional[bytes], str]:
     """One FLUX call. Returns (picture bytes, "") or (None, the reason in plain words)."""
     if not cloudflare_ready():
@@ -358,19 +367,24 @@ def _request(prompt: str) -> Tuple[Optional[bytes], str]:
         r = requests.post(f"https://api.cloudflare.com/client/v4/accounts/{acc}/ai/run/{CF_MODEL}", headers={"Authorization": f"Bearer {tok}"},
                           json={"prompt": prompt[:2000], "steps": 4}, timeout=120)
     except requests.RequestException as e:
+        _failed(f"Could not reach Cloudflare ({type(e).__name__}).")
         return None, f"Could not reach Cloudflare ({type(e).__name__})."
     try:
         data = r.json()
     except Exception:
         data = {}
     if r.status_code != 200:
-        return None, _why(r.status_code, data)
+        why = _why(r.status_code, data)
+        _failed(why)
+        return None, why
     b64 = ((data.get("result") or data).get("image")) if isinstance(data, dict) else None
     if not b64:
+        _failed("Cloudflare answered but sent no picture.")
         return None, "Cloudflare answered but sent no picture."
     try:
         return base64.b64decode(b64), ""
     except Exception:
+        _failed("Cloudflare sent a picture the studio could not read.")
         return None, "Cloudflare sent a picture the studio could not read."
 
 

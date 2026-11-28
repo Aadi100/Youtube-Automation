@@ -45,6 +45,8 @@ def _record(provider: str, task: str, tin: int, tout: int, ok: bool = True) -> N
     try:
         from app.models import UsageEvent
         UsageEvent(user_id=os.environ.get("CLIPSTUDIO_USER_ID") or None, video_id="research", kind="llm", provider=provider, task=task, tokens_in=tin, tokens_out=tout, ok=ok).save()
+        from app.models import AiCall
+        AiCall.log(provider, "text", task, tin, tout, ok=ok)
     except Exception:
         pass
 

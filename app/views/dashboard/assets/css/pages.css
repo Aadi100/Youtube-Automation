@@ -67,6 +67,14 @@ body.tr-on{overflow:hidden}
 .stwarn{color:var(--bad);margin-top:8px;font-weight:600}.stredo{z-index:1}
 .tr-check{margin:10px 0 0;font-weight:600;font-size:13px}.tr-check.ok{color:var(--ok)}.tr-check.todo{color:var(--muted);font-weight:500}
 .tr-sum{margin:10px 0 14px}.tr-row{margin:4px 0}.tr-row.ok{color:var(--ok)}
+.aibars{display:flex;align-items:flex-end;gap:2px;height:120px;border-bottom:1px solid var(--line)}.aibars i{flex:1;min-width:2px;background:var(--accent);border-radius:2px 2px 0 0;opacity:.85}.aibars i:hover{opacity:1}
+.pfsec{border:1px solid var(--line);border-radius:16px;padding:18px 20px 20px;margin:0 0 16px;background:var(--panel2)}
+.pfhead h3{margin:0 0 2px;font-size:16px}.pfhead p{margin:0 0 16px;color:var(--muted);font-size:13px;max-width:70ch}
+.pfgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:20px 28px;align-items:start}.pfgrid .full{grid-column:1/-1}.pfgrid label:not(.pfc){display:block;margin:0 0 6px}.pfsec .pkgrid.auto{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.pfrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.pfrow select{flex:1;min-width:0}
+.pfc{display:inline-flex;align-items:center;gap:8px;margin:0 16px 0 0}.pfc input[type=color]{width:48px;height:38px;padding:2px;border-radius:10px;cursor:pointer}
+.pflogo{height:44px;background:#8886;border-radius:8px;padding:4px}
+.pfsave button{white-space:nowrap}.pfsave{position:sticky;bottom:0;z-index:2;display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 4px 10px;background:linear-gradient(to top,var(--panel) 75%,transparent)}
 .stgenres{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
 .stg,.stidea{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--panel2);color:var(--text);height:auto}
 .stg span,.stidea span{font-size:12.5px;font-weight:400}.stg.on,.stidea.on{border-color:var(--accent);background:var(--accent-soft)}

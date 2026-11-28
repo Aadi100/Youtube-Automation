@@ -24,14 +24,14 @@ const ICON = {
 };
 const svg = (n) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
 let ME = null;
-Object.assign(ICON, {usage: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5v9"/><path d="M14.5 9.5h-3.2a1.6 1.6 0 0 0 0 3.2h1.4a1.6 1.6 0 0 1 0 3.2H9.5"/>', reports: '<path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/>', users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17.5 14.5c2.2.3 3.6 1.8 4 4.5"/>',
+Object.assign(ICON, {aiusage: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/><path d="M10 10h4v4h-4z"/>', usage: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5v9"/><path d="M14.5 9.5h-3.2a1.6 1.6 0 0 0 0 3.2h1.4a1.6 1.6 0 0 1 0 3.2H9.5"/>', reports: '<path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/>', users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17.5 14.5c2.2.3 3.6 1.8 4 4.5"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c.8-4.2 4-6.5 8-6.5s7.2 2.3 8 6.5"/>', logout: '<path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/>'});
 function buildShell() {
   const owner = ME.role === "owner";
   const NAV = [["", [["overview", "Home"], ["create", "Make a video"], ["stories", "Story videos"], ["videos", "My videos"], ["games", "Games"], ["schedule", "Schedule"]]],
                ["More tools", [["editor", "Video editor"], ["projects", "Edit projects"], ["permissions", "Creator permissions"], ["clips", "Source clips"], ["research", "Find ideas"], ["social", "Other platforms"]].concat(owner ? [["reactions", "Reaction Lab"], ["lab", "Learning Lab"]] : []), "fold"],
                ["Account", [["usage", "Tokens and usage"], ["settings", "Settings"], ["profile", "My profile"], ["notifications", "Notifications"]]]]
-    .concat(owner ? [["Owner", [["users", "Users"]]]] : []);
+    .concat(owner ? [["Owner", [["users", "Users"], ["aiusage", "AI usage"]]]] : []);
   const navLink = ([r, t]) => `<a href="#/${r}" data-r="${r}">${svg(r)}<span>${t}</span>${r === "reactions" || r === "lab" ? `<i class="betatag">BETA</i>` : ""}</a>`;
   const navHtml = NAV.map(([g, items, fold]) => fold
     ? `<details class="navmore" id="navmore"><summary>${svg("more")}<span>${g}</span></summary>${items.map(navLink).join("")}</details>`
@@ -77,6 +77,7 @@ const SUBS = {
   schedule: "Let the studio make videos for you at times you choose, with no clicking.",
   settings: "Connect your accounts and choose how your videos should look and sound.",
   users: "Approve new members, switch accounts on or off, and watch how busy the server is.",
+  aiusage: "What the AI services really did: tokens in and out, pictures, characters and seconds, in each service's own numbers.",
   reports: "What the studio used, what it cost you in real dollars, what members were billed, and what is left over.",
   usage: "Tokens are what you pay with. Here is what you have left and what each video used.",
 };
